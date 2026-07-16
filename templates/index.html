@@ -204,17 +204,16 @@ async function page_autoban(){
 <div class="card" style="margin-bottom:16px">
   <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:8px">
     <div><label><input type="checkbox" id="abEnabled" ${c.enabled?'checked':''} style="width:auto;margin-right:6px">启用 fail2ban 联动</label></div>
-    <div><label><input type="checkbox" id="abLocal" ${c.local_ban?'checked':''} style="width:auto;margin-right:6px">本机防火墙</label></div>
     <div><label><input type="checkbox" id="abWaf" ${c.waf_blacklist?'checked':''} style="width:auto;margin-right:6px">写入 WAF 黑名单</label></div>
     <div><label><input type="checkbox" id="abCf" ${c.cloudflare_ban?'checked':''} style="width:auto;margin-right:6px">Cloudflare 封禁</label></div>
+    <div><label><input type="checkbox" id="abRealIp" ${c.cf_real_ip_enabled?'checked':''} style="width:auto;margin-right:6px">Cloudflare 真实 IP</label></div>
   </div>
   <div class="row">
-    <div class="form-group" style="width:160px"><label>Jail 名称</label><input id="abJail" value="${c.jail_name||''}"></div>
-    <div class="form-group" style="width:160px"><label>Filter 名称</label><input id="abFilter" value="${c.filter_name||''}"></div>
+    <div class="form-group" style="width:160px"><label>主 Jail 名称</label><input id="abJail" value="${c.jail_name||''}"></div>
+    <div class="form-group" style="width:160px"><label>主 Filter 名称</label><input id="abFilter" value="${c.filter_name||''}"></div>
     <div class="form-group" style="width:110px"><label>maxretry</label><input id="abMax" type="number" value="${c.maxretry||5}"></div>
     <div class="form-group" style="width:110px"><label>findtime</label><input id="abFind" type="number" value="${c.findtime||600}"></div>
     <div class="form-group" style="width:110px"><label>bantime</label><input id="abBan" type="number" value="${c.bantime||3600}"></div>
-    <div class="form-group" style="width:130px"><label>防火墙链</label><input id="abChain" value="${c.chain||'DOCKER-USER'}"></div>
   </div>
   <div class="form-group"><label>匹配状态码（逗号分隔）</label><input id="abCodes" value="${(c.status_codes||[]).join(',')}"></div>
   <div class="form-group"><label>日志路径（每行一个）</label><textarea id="abLogpaths" style="height:74px">${(c.logpaths||[]).join('\n')}</textarea></div>
@@ -227,15 +226,22 @@ async function page_autoban(){
     <div class="form-group" style="width:260px"><label>邮箱</label><input id="abCfEmail" value="${c.cloudflare_email||''}"></div>
     <div class="form-group" style="width:360px"><label>API Key / Token</label><input id="abCfKey" type="password" value="${c.cloudflare_api_key||''}"></div>
     <div class="form-group" style="width:220px"><label>备注</label><input id="abCfNote" value="${c.cloudflare_note||''}"></div>
+    <div class="form-group" style="width:220px"><label>真实 IP Header</label><input id="abRealIpHeader" value="${c.real_ip_header||'CF-Connecting-IP'}"></div>
+    <div><label><input type="checkbox" id="abRealIpRecursive" ${c.real_ip_recursive?'checked':''} style="width:auto;margin-right:6px">real_ip_recursive</label></div>
   </div>
+  <div class="form-group"><label>Cloudflare IP 段（每行一个）</label><textarea id="abCfRanges" style="height:120px">${(c.cf_real_ip_ranges||[]).join('\n')}</textarea></div>
+</div>
+<div class="card" style="margin-bottom:16px">
+  <h3 style="color:#111827;font-size:15px;margin-bottom:12px">Fail2ban Jails（JSON，可编辑）</h3>
+  <textarea id="abJails" style="height:220px;font-family:monospace;font-size:12px">${escapeHtml(JSON.stringify(c.jails||[],null,2))}</textarea>
 </div>
 <div class="card">
-  <div class="row" style="margin-bottom:12px"><button class="btn btn-primary" onclick="saveAutoban()">保存配置</button><button class="btn btn-primary" onclick="restartAutoban()">重启 fail2ban</button><button class="btn" style="background:var(--border)" onclick="refreshAutobanStatus()">刷新状态</button><input id="abManualIp" placeholder="手动封禁/解封 IP" style="width:200px"><button class="btn btn-danger btn-sm" onclick="manualAutoban('ban')">封禁</button><button class="btn btn-sm" style="background:var(--border)" onclick="manualAutoban('unban')">解封</button></div>
+  <div class="row" style="margin-bottom:12px"><button class="btn btn-primary" onclick="saveAutoban()">保存并写入配置</button><button class="btn btn-primary" onclick="restartAutoban()">重启 fail2ban</button><button class="btn" style="background:var(--border)" onclick="refreshAutobanStatus()">刷新状态</button><input id="abManualIp" placeholder="手动封禁/解封 IP" style="width:200px"><button class="btn btn-danger btn-sm" onclick="manualAutoban('ban')">封禁</button><button class="btn btn-sm" style="background:var(--border)" onclick="manualAutoban('unban')">解封</button></div>
   <pre id="abStatus">${escapeHtml(d.status?.output||'')}</pre>
 </div>`);
 }
-function autobanPayload(){return {enabled:$('#abEnabled').checked,jail_name:$('#abJail').value.trim(),filter_name:$('#abFilter').value.trim(),maxretry:+$('#abMax').value,findtime:+$('#abFind').value,bantime:+$('#abBan').value,chain:$('#abChain').value.trim(),status_codes:$('#abCodes').value.split(',').map(x=>x.trim()).filter(Boolean),logpaths:$('#abLogpaths').value.split('\n').map(x=>x.trim()).filter(Boolean),ignore_ips:$('#abIgnoreIps').value.split('\n').map(x=>x.trim()).filter(Boolean),ignore_regex:$('#abIgnoreRegex').value,local_ban:$('#abLocal').checked,waf_blacklist:$('#abWaf').checked,cloudflare_ban:$('#abCf').checked,cloudflare_email:$('#abCfEmail').value.trim(),cloudflare_api_key:$('#abCfKey').value.trim(),cloudflare_note:$('#abCfNote').value.trim()}}
-async function saveAutoban(){const r=await api('autoban_config',{method:'POST',body:autobanPayload()});if(r&&r.ok)toast('已保存自动封禁配置');else toast('保存失败','error')}
+function autobanPayload(){let jails=[];try{jails=JSON.parse($('#abJails').value||'[]')}catch(e){toast('Jails JSON 格式错误','error');throw e}return {enabled:$('#abEnabled').checked,jail_name:$('#abJail').value.trim(),filter_name:$('#abFilter').value.trim(),maxretry:+$('#abMax').value,findtime:+$('#abFind').value,bantime:+$('#abBan').value,status_codes:$('#abCodes').value.split(',').map(x=>x.trim()).filter(Boolean),logpaths:$('#abLogpaths').value.split('\n').map(x=>x.trim()).filter(Boolean),ignore_ips:$('#abIgnoreIps').value.split('\n').map(x=>x.trim()).filter(Boolean),ignore_regex:$('#abIgnoreRegex').value,waf_blacklist:$('#abWaf').checked,cloudflare_ban:$('#abCf').checked,cloudflare_email:$('#abCfEmail').value.trim(),cloudflare_api_key:$('#abCfKey').value.trim(),cloudflare_note:$('#abCfNote').value.trim(),cf_real_ip_enabled:$('#abRealIp').checked,real_ip_header:$('#abRealIpHeader').value.trim(),real_ip_recursive:$('#abRealIpRecursive').checked,cf_real_ip_ranges:$('#abCfRanges').value.split('\n').map(x=>x.trim()).filter(Boolean),jails}}
+async function saveAutoban(){let payload;try{payload=autobanPayload()}catch(e){return}const r=await api('autoban_config',{method:'POST',body:payload});if(r&&r.ok)toast('已保存自动封禁配置');else toast('保存失败','error')}
 async function restartAutoban(){const r=await api('autoban_restart',{method:'POST'});if(r&&r.ok){toast('fail2ban 已重启');refreshAutobanStatus()}else{toast('重启失败','error');if(r)$('#abStatus').textContent=r.output||''}}
 async function refreshAutobanStatus(){const r=await api('autoban_status');if(r)$('#abStatus').textContent=r.output||''}
 async function manualAutoban(op){const ip=$('#abManualIp').value.trim();if(!ip)return;const r=await api(op==='ban'?'autoban_ban':'autoban_unban',{method:'POST',body:{ip}});if(r&&r.ok){toast(op==='ban'?'已封禁':'已解封');refreshAutobanStatus()}else{toast('操作失败','error');if(r)$('#abStatus').textContent=r.output||''}}

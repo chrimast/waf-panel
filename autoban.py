@@ -9,6 +9,8 @@ FAIL2BAN_JAIL_PATH = Path("/etc/fail2ban/jail.d/waf-panel-autoban.local")
 FAIL2BAN_FILTER_PATH = Path("/etc/fail2ban/filter.d/waf-panel-autoban.conf")
 FAIL2BAN_WAF_ACTION_PATH = Path("/etc/fail2ban/action.d/1panel-waf-blacklist.conf")
 FAIL2BAN_CF_ACTION_PATH = Path("/etc/fail2ban/action.d/waf-panel-cloudflare.conf")
+FAIL2BAN_JAIL_LOCAL_PATH = Path("/etc/fail2ban/jail.local")
+NGINX_REAL_IP_SNIPPET_PATH = PANEL_DIR / "generated/cloudflare-real-ip.conf"
 WAF_BLACKLIST_SCRIPT = PANEL_DIR / "scripts/fail2ban_waf_blacklist.py"
 WAF_RULES_PATH = Path("/opt/1panel/apps/openresty/openresty/1pwaf/data/rules/ipBlack.json")
 OPENRESTY_CONTAINER = "1Panel-openresty-bGB2"
@@ -29,13 +31,31 @@ def default_autoban_config():
         ],
         "ignore_regex": r"^.*(/(?:robots\.txt|favicon\.ico|.*\.(?:jpg|png|gif|jpeg|svg|webp|bmp|tiff|css|js|woff|woff2|eot|ttf|otf)))",
         "ignore_ips": ["127.0.0.1/8"],
-        "local_ban": True,
         "cloudflare_ban": False,
         "waf_blacklist": True,
         "cloudflare_email": "",
         "cloudflare_api_key": "",
         "cloudflare_note": "WAF Panel AutoBan",
-        "chain": "DOCKER-USER",
+        "cf_real_ip_enabled": True,
+        "real_ip_header": "CF-Connecting-IP",
+        "real_ip_recursive": True,
+        "cf_real_ip_ranges": [
+            "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+            "104.16.0.0/13", "104.24.0.0/14", "108.162.192.0/18",
+            "131.0.72.0/22", "141.101.64.0/18", "162.158.0.0/15",
+            "172.64.0.0/13", "173.245.48.0/20", "188.114.96.0/20",
+            "190.93.240.0/20", "197.234.240.0/22", "198.41.128.0/17",
+            "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32",
+            "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+        ],
+        "jails": [
+            {"name": "docker-nginx-cc", "enabled": True, "filter": "nginx-cc", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "docker-nginx-badbots", "enabled": True, "filter": "apache-badbots", "maxretry": 2, "findtime": 600, "bantime": 3600},
+            {"name": "docker-nginx-botsearch", "enabled": True, "filter": "nginx-botsearch", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "docker-nginx-http-auth", "enabled": True, "filter": "nginx-http-auth", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "docker-nginx-limit-req", "enabled": True, "filter": "nginx-limit-req", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "docker-php-url-fopen", "enabled": True, "filter": "php-url-fopen", "maxretry": 5, "findtime": 600, "bantime": 3600},
+        ],
     }
 
 
@@ -70,9 +90,24 @@ def normalize_autoban_config(cfg):
         base["status_codes"] = [403, 429]
     base["logpaths"] = [str(x).strip() for x in _as_list(base.get("logpaths")) if str(x).strip()]
     base["ignore_ips"] = [str(x).strip() for x in _as_list(base.get("ignore_ips")) if str(x).strip()]
-    for key in ("enabled", "local_ban", "cloudflare_ban", "waf_blacklist"):
+    base["cf_real_ip_ranges"] = [str(x).strip() for x in _as_list(base.get("cf_real_ip_ranges")) if str(x).strip()]
+    base["jails"] = [_normalize_jail(x) for x in _as_list(base.get("jails")) if isinstance(x, dict)]
+    for key in ("enabled", "cloudflare_ban", "waf_blacklist", "cf_real_ip_enabled", "real_ip_recursive"):
         base[key] = bool(base.get(key))
+    base.pop("local_ban", None)
+    base.pop("chain", None)
     return base
+
+
+def _normalize_jail(jail):
+    return {
+        "name": str(jail.get("name", "")).strip(),
+        "enabled": bool(jail.get("enabled", True)),
+        "filter": str(jail.get("filter", "nginx-cc")).strip(),
+        "maxretry": int(jail.get("maxretry") or 5),
+        "findtime": int(jail.get("findtime") or 600),
+        "bantime": int(jail.get("bantime") or 3600),
+    }
 
 
 def _as_list(value):
@@ -90,12 +125,10 @@ def generate_fail2ban_files(cfg):
     codes = "|".join(str(c) for c in cfg["status_codes"])
     logpaths = "\n          ".join(cfg["logpaths"])
     actions = []
-    if cfg["local_ban"]:
-        actions.append("iptables-allports[name=%(name)s, chain=%(chain)s]")
     if cfg["cloudflare_ban"]:
-        actions.append("waf-panel-cloudflare[name=%(name)s]")
+        actions.append("waf-panel-cloudflare")
     if cfg["waf_blacklist"]:
-        actions.append("1panel-waf-blacklist[name=%(name)s]")
+        actions.append("1panel-waf-blacklist")
     action_text = "\n         ".join(actions) if actions else ""
     ignoreip = " ".join(cfg["ignore_ips"])
     enabled = "true" if cfg["enabled"] else "false"
@@ -104,7 +137,6 @@ def generate_fail2ban_files(cfg):
 enabled = {enabled}
 filter = {cfg['filter_name']}
 port = http,https
-chain = {cfg['chain']}
 logpath = {logpaths}
 maxretry = {cfg['maxretry']}
 findtime = {cfg['findtime']}
@@ -112,10 +144,12 @@ bantime = {cfg['bantime']}
 ignoreip = {ignoreip}
 action = {action_text}
 """
+    jail_local = generate_jail_local(cfg, action_text, logpaths, ignoreip)
     filter_conf = f"""[Definition]
 failregex = ^<HOST> .* HTTP.* ({codes}) .*$
 ignoreregex = {cfg['ignore_regex']}
 """
+    nginx_real_ip = generate_nginx_real_ip(cfg)
     waf_action = f"""[Definition]
 actionban = /usr/bin/python3 {WAF_BLACKLIST_SCRIPT} ban <ip>
 actionunban = /usr/bin/python3 {WAF_BLACKLIST_SCRIPT} unban <ip>
@@ -132,7 +166,42 @@ _cf_api_prms = -H 'X-Auth-Email: <cfuser>' -H 'X-Auth-Key: <cftoken>' -H 'Conten
 cfuser = {cfg['cloudflare_email']}
 cftoken = {cfg['cloudflare_api_key']}
 """
-    return {"jail": jail, "filter": filter_conf, "waf_action": waf_action, "cloudflare_action": cf_action}
+    return {"jail": jail, "jail_local": jail_local, "filter": filter_conf, "waf_action": waf_action, "cloudflare_action": cf_action, "nginx_real_ip": nginx_real_ip}
+
+
+def generate_jail_local(cfg, action_text, logpaths, ignoreip):
+    parts = [f"""# Managed by waf-panel
+[DEFAULT]
+bantime = {cfg['bantime']}
+findtime = {cfg['findtime']}
+maxretry = {cfg['maxretry']}
+action = {action_text}
+"""]
+    for jail in cfg["jails"]:
+        if not jail.get("name"):
+            continue
+        parts.append(f"""[{jail['name']}]
+enabled = {'true' if jail['enabled'] else 'false'}
+filter = {jail['filter']}
+port = http,https
+logpath = {logpaths}
+maxretry = {jail['maxretry']}
+findtime = {jail['findtime']}
+bantime = {jail['bantime']}
+ignoreip = {ignoreip}
+action = {action_text}
+""")
+    return "\n".join(parts)
+
+
+def generate_nginx_real_ip(cfg):
+    if not cfg.get("cf_real_ip_enabled"):
+        return ""
+    lines = ["# Managed by waf-panel: Cloudflare real IP"]
+    lines += [f"set_real_ip_from {item};" for item in cfg["cf_real_ip_ranges"]]
+    lines.append(f"real_ip_header {cfg.get('real_ip_header') or 'CF-Connecting-IP'};")
+    lines.append(f"real_ip_recursive {'on' if cfg.get('real_ip_recursive') else 'off'};")
+    return "\n".join(lines) + "\n"
 
 
 def apply_autoban_config(cfg):
@@ -142,9 +211,12 @@ def apply_autoban_config(cfg):
     FAIL2BAN_FILTER_PATH.parent.mkdir(parents=True, exist_ok=True)
     FAIL2BAN_WAF_ACTION_PATH.parent.mkdir(parents=True, exist_ok=True)
     FAIL2BAN_JAIL_PATH.write_text(files["jail"])
+    FAIL2BAN_JAIL_LOCAL_PATH.write_text(files["jail_local"])
     FAIL2BAN_FILTER_PATH.write_text(files["filter"])
     FAIL2BAN_WAF_ACTION_PATH.write_text(files["waf_action"])
     FAIL2BAN_CF_ACTION_PATH.write_text(files["cloudflare_action"])
+    NGINX_REAL_IP_SNIPPET_PATH.parent.mkdir(parents=True, exist_ok=True)
+    NGINX_REAL_IP_SNIPPET_PATH.write_text(files["nginx_real_ip"])
     os.chmod(FAIL2BAN_CF_ACTION_PATH, 0o600)
     ensure_waf_blacklist_script()
     return cfg

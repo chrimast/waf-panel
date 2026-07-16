@@ -9,7 +9,7 @@ from autoban import default_autoban_config, generate_fail2ban_files, save_autoba
 
 
 class AutobanConfigTests(unittest.TestCase):
-    def test_generate_fail2ban_files_includes_editable_values(self):
+    def test_generate_fail2ban_files_includes_editable_values_without_local_firewall(self):
         cfg = default_autoban_config()
         cfg.update({
             "enabled": True,
@@ -22,7 +22,6 @@ class AutobanConfigTests(unittest.TestCase):
             "status_codes": [403, 429, 444],
             "ignore_regex": "^.*static.*$",
             "ignore_ips": ["127.0.0.1/8", "192.0.2.1"],
-            "local_ban": True,
             "cloudflare_ban": True,
             "waf_blacklist": True,
             "cloudflare_email": "user@example.com",
@@ -37,13 +36,37 @@ class AutobanConfigTests(unittest.TestCase):
         self.assertIn("findtime = 900", files["jail"])
         self.assertIn("bantime = 7200", files["jail"])
         self.assertIn("/tmp/access.log", files["jail"])
-        self.assertIn("iptables-allports", files["jail"])
-        self.assertIn("cloudflare", files["jail"])
+        self.assertNotIn("iptables-allports", files["jail"])
+        self.assertNotIn("chain =", files["jail"])
+        self.assertIn("waf-panel-cloudflare", files["jail"])
         self.assertIn("1panel-waf-blacklist", files["jail"])
         self.assertIn("(403|429|444)", files["filter"])
         self.assertIn("^.*static.*$", files["filter"])
         self.assertIn("cfuser = user@example.com", files["cloudflare_action"])
         self.assertIn("cftoken = secret-key", files["cloudflare_action"])
+
+    def test_generate_legacy_f2bv2_sections_are_editable(self):
+        cfg = default_autoban_config()
+        cfg.update({
+            "cf_real_ip_enabled": True,
+            "cf_real_ip_ranges": ["203.0.113.0/24", "2001:db8::/32"],
+            "real_ip_header": "CF-Connecting-IP",
+            "jails": [
+                {"name": "docker-nginx-cc", "enabled": True, "filter": "nginx-cc", "maxretry": 5, "findtime": 600, "bantime": 3600},
+                {"name": "docker-nginx-badbots", "enabled": False, "filter": "apache-badbots", "maxretry": 2, "findtime": 600, "bantime": 3600},
+            ],
+        })
+
+        files = generate_fail2ban_files(cfg)
+
+        self.assertIn("set_real_ip_from 203.0.113.0/24;", files["nginx_real_ip"])
+        self.assertIn("set_real_ip_from 2001:db8::/32;", files["nginx_real_ip"])
+        self.assertIn("real_ip_header CF-Connecting-IP;", files["nginx_real_ip"])
+        self.assertIn("[docker-nginx-cc]", files["jail_local"])
+        self.assertIn("[docker-nginx-badbots]", files["jail_local"])
+        self.assertIn("enabled = false", files["jail_local"])
+        self.assertIn("filter = nginx-cc", files["jail_local"])
+        self.assertIn("filter = apache-badbots", files["jail_local"])
 
     def test_save_and_load_round_trip_preserves_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
