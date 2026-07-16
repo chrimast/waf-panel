@@ -276,16 +276,54 @@ async def cc_config(request: Request):
 
 # ── API: IP 黑/白名单 ─────────────────────────────
 def _read_blacklist_file(name):
-    """读取 ipBlack/ipWhite.json，兼容 [] 和 {rules:[]} 两种格式"""
+    """读取 ipBlack/ipWhite.json，兼容 1Panel 对象规则和早期字符串规则。"""
     data = waf_read_json(os.path.join(WAF_RULES, f"{name}.json"))
     if data is None: return []
-    if isinstance(data, list): return data
-    if isinstance(data, dict): return data.get("rules", [])
-    return []
+    rules = data if isinstance(data, list) else data.get("rules", []) if isinstance(data, dict) else []
+    return [_normalize_ip_rule(r) for r in rules if _normalize_ip_rule(r)]
 
 def _write_blacklist_file(name, rules):
-    """写入 ipBlack/ipWhite.json，使用 {rules:[...]} 格式"""
+    """写入 1Panel 原生规则格式: {rules:[{type, ipv4/ipv6/ipGroup/ipStart/ipEnd}]}。"""
     waf_write_json(os.path.join(WAF_RULES, f"{name}.json"), {"rules": rules})
+
+def _normalize_ip_rule(rule):
+    if isinstance(rule, str):
+        return _make_ip_rule(rule)
+    if not isinstance(rule, dict):
+        return None
+    typ = rule.get("type")
+    if typ == "ipv4" and rule.get("ipv4"):
+        return {"type": "ipv4", "ipv4": rule["ipv4"].strip()}
+    if typ == "ipv6" and rule.get("ipv6"):
+        return {"type": "ipv6", "ipv6": rule["ipv6"].strip()}
+    if typ == "ipArr" and rule.get("ipStart") and rule.get("ipEnd"):
+        return {"type": "ipArr", "ipStart": rule["ipStart"].strip(), "ipEnd": rule["ipEnd"].strip()}
+    if typ == "ipGroup" and rule.get("ipGroup"):
+        return {"type": "ipGroup", "ipGroup": rule["ipGroup"].strip()}
+    for key in ("ipv4", "ipv6", "ipGroup"):
+        if rule.get(key):
+            return _make_ip_rule(rule[key])
+    return None
+
+def _make_ip_rule(value):
+    value = str(value).strip()
+    if not value: return None
+    if "-" in value:
+        start, end = [x.strip() for x in value.split("-", 1)]
+        return {"type": "ipArr", "ipStart": start, "ipEnd": end}
+    if ":" in value:
+        return {"type": "ipv6", "ipv6": value} if "/" not in value else {"type": "ipGroup", "ipGroup": value}
+    if "/" in value:
+        return {"type": "ipGroup", "ipGroup": value}
+    return {"type": "ipv4", "ipv4": value}
+
+def _ip_rule_value(rule):
+    rule = _normalize_ip_rule(rule)
+    if not rule: return ""
+    if rule["type"] in ("ipv4", "ipv6"): return rule[rule["type"]]
+    if rule["type"] == "ipGroup": return rule["ipGroup"]
+    if rule["type"] == "ipArr": return f'{rule["ipStart"]}-{rule["ipEnd"]}'
+    return ""
 
 @app.get("/api/blacklist")
 async def blacklist_get():
@@ -298,10 +336,13 @@ async def blacklist_get():
 async def blacklist_add(request: Request):
     body = await request.json()
     ip = body["ip"].strip()
+    rule = _make_ip_rule(ip)
+    if not rule: raise HTTPException(400, "IP 不能为空")
     lst = "ipWhite" if body.get("type") == "white" else "ipBlack"
     data = _read_blacklist_file(lst)
-    if ip not in data:
-        data.append(ip); _write_blacklist_file(lst, data)
+    values = {_ip_rule_value(x) for x in data}
+    if _ip_rule_value(rule) not in values:
+        data.append(rule); _write_blacklist_file(lst, data)
     return {**{"ok": True, "message": f"已添加 {ip}"}, **nginx_reload()}
 
 @app.post("/api/blacklist_remove")
@@ -309,8 +350,7 @@ async def blacklist_remove(request: Request):
     body = await request.json()
     ip = body["ip"].strip()
     lst = "ipWhite" if body.get("type") == "white" else "ipBlack"
-    data = _read_blacklist_file(lst)
-    data = [x for x in data if x != ip]
+    data = [x for x in _read_blacklist_file(lst) if _ip_rule_value(x) != ip]
     _write_blacklist_file(lst, data)
     return {**{"ok": True, "message": f"已移除 {ip}"}, **nginx_reload()}
 
@@ -347,10 +387,13 @@ async def asn_block(request: Request):
     prefixes = body.get("prefixes", [])
     added = 0
     data = _read_blacklist_file("ipBlack")
+    values = {_ip_rule_value(x) for x in data}
     for p in prefixes:
         prefix = p["prefix"] if isinstance(p, dict) else str(p)
-        if prefix not in data:
-            data.append(prefix)
+        rule = _make_ip_rule(prefix)
+        if rule and _ip_rule_value(rule) not in values:
+            data.append(rule)
+            values.add(_ip_rule_value(rule))
             added += 1
     _write_blacklist_file("ipBlack", data)
     return {**{"ok": True, "message": f"已添加 {added} 个 IP 范围", "added": added}, **nginx_reload()}

@@ -71,6 +71,7 @@ function toast(msg,type='success'){const t=document.createElement('div');t.class
 function setMain(h){$('#main').innerHTML=h}
 function nav(page){$$('.nav-link').forEach(a=>a.classList.remove('active'));const l=$(`.nav-link:nth-child(${{dashboard:2,logs:3,mapview:4,blocks:5,geo:6,blacklist:7,pages:8}[page]})`);if(l)l.classList.add('active');window['page_'+page]()}
 function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function ipRuleValue(rule){if(typeof rule==='string')return rule;if(!rule||typeof rule!=='object')return '';if(rule.type==='ipv4')return rule.ipv4||'';if(rule.type==='ipv6')return rule.ipv6||'';if(rule.type==='ipGroup')return rule.ipGroup||'';if(rule.type==='ipArr')return `${rule.ipStart||''}-${rule.ipEnd||''}`;return rule.ipv4||rule.ipv6||rule.ipGroup||''}
 
 async function page_dashboard(){
   const d=await api('dashboard');if(!d)return;
@@ -189,7 +190,7 @@ async function page_blacklist(){
 <div class="flex"><div class="row" style="margin-bottom:12px"><button class="btn btn-sm ${_blType==='black'?'btn-primary':''}" style="background:${_blType==='black'?'var(--primary)':'var(--border)'}" onclick="_blType='black';page_blacklist()">黑名单 (${d.ipBlack.length})</button><button class="btn btn-sm ${_blType==='white'?'btn-primary':''}" style="background:${_blType==='white'?'var(--primary)':'var(--border)'}" onclick="_blType='white';page_blacklist()">白名单 (${d.ipWhite.length})</button></div></div>
 <div class="row"><input id="newIP" placeholder="IP 地址" style="width:200px"><button class="btn btn-primary btn-sm" onclick="addIP()">添加</button></div>
 <table style="margin-top:12px"><thead><tr><th>IP</th><th>操作</th></tr></thead>
-<tbody>${(_blType==='black'?d.ipBlack:d.ipWhite).map(ip=>`<tr><td><code>${ip}</code></td><td><button class="btn btn-danger btn-sm" onclick="removeIP('${ip}')">移除</button></td></tr>`).join('')||'<tr><td colspan="2" class="empty">暂无</td></tr>'}</tbody></table></div>`);
+<tbody>${(_blType==='black'?d.ipBlack:d.ipWhite).map(rule=>{const ip=ipRuleValue(rule);return `<tr><td><code>${ip}</code></td><td><button class="btn btn-danger btn-sm" onclick="removeIP('${ip}')">移除</button></td></tr>`}).join('')||'<tr><td colspan="2" class="empty">暂无</td></tr>'}</tbody></table></div>`);
 }
 async function addIP(){const ip=$('#newIP').value.trim();if(!ip)return;const r=await api('blacklist_add',{method:'POST',body:{ip,type:_blType}});if(r&&r.ok){toast(r.message);$('#newIP').value='';page_blacklist()}}
 async function removeIP(ip){const r=await api('blacklist_remove',{method:'POST',body:{ip,type:_blType}});if(r&&r.ok){toast(r.message);page_blacklist()}}
