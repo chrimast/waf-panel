@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>WAF 管理面板</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css"/>
 <style>
 :root{--bg:#f5f7fb;--card:#ffffff;--border:#d8dee9;--text:#1f2937;--muted:#667085;--primary:#2563eb;--danger:#dc2626;--success:#16a34a;--warning:#d97706;--radius:8px}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -65,7 +65,7 @@ pre{background:#f8fafc;padding:12px;border-radius:6px;font-size:12px;overflow-x:
 </nav>
 <main class="main" id="main"></main>
 <div id="toast"></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/vendor/leaflet/leaflet.js"></script>
 <script>
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s),api=async(action,opt={})=>{const u='/api/'+action+(opt.params?'?'+new URLSearchParams(opt.params):'');const r=await fetch(u,{method:opt.method||'GET',headers:{'Content-Type':'application/json'},body:opt.body?JSON.stringify(opt.body):void 0});if(r.status===401){const j=await r.json();if(j.need_login){location.href='/login';return{}}}return r.json()};
 function toast(msg,type='success'){const t=document.createElement('div');t.className='toast toast-'+type;t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),3000)}
@@ -73,6 +73,7 @@ function setMain(h){$('#main').innerHTML=h}
 function nav(page){$$('.nav-link').forEach(a=>a.classList.remove('active'));const l=$(`.nav-link:nth-child(${{dashboard:2,logs:3,mapview:4,blocks:5,geo:6,blacklist:7,autoban:8,pages:9}[page]})`);if(l)l.classList.add('active');window['page_'+page]()}
 function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function ipRuleValue(rule){if(typeof rule==='string')return rule;if(!rule||typeof rule!=='object')return '';if(rule.type==='ipv4')return rule.ipv4||'';if(rule.type==='ipv6')return rule.ipv6||'';if(rule.type==='ipGroup')return rule.ipGroup||'';if(rule.type==='ipArr')return `${rule.ipStart||''}-${rule.ipEnd||''}`;return rule.ipv4||rule.ipv6||rule.ipGroup||''}
+function ipRuleState(rule){if(!rule||typeof rule==='string')return 'on';return rule.state==='off'?'off':'on'}
 
 async function page_dashboard(){
   const d=await api('dashboard');if(!d)return;
@@ -190,11 +191,12 @@ async function page_blacklist(){
 <div class="card">
 <div class="flex"><div class="row" style="margin-bottom:12px"><button class="btn btn-sm ${_blType==='black'?'btn-primary':''}" style="background:${_blType==='black'?'var(--primary)':'var(--border)'}" onclick="_blType='black';page_blacklist()">黑名单 (${d.ipBlack.length})</button><button class="btn btn-sm ${_blType==='white'?'btn-primary':''}" style="background:${_blType==='white'?'var(--primary)':'var(--border)'}" onclick="_blType='white';page_blacklist()">白名单 (${d.ipWhite.length})</button></div></div>
 <div class="row"><input id="newIP" placeholder="IP 地址" style="width:200px"><button class="btn btn-primary btn-sm" onclick="addIP()">添加</button></div>
-<table style="margin-top:12px"><thead><tr><th>IP</th><th>操作</th></tr></thead>
-<tbody>${(_blType==='black'?d.ipBlack:d.ipWhite).map(rule=>{const ip=ipRuleValue(rule);return `<tr><td><code>${ip}</code></td><td><button class="btn btn-danger btn-sm" onclick="removeIP('${ip}')">移除</button></td></tr>`}).join('')||'<tr><td colspan="2" class="empty">暂无</td></tr>'}</tbody></table></div>`);
+<table style="margin-top:12px"><thead><tr><th>IP</th><th>状态</th><th>操作</th></tr></thead>
+<tbody>${(_blType==='black'?d.ipBlack:d.ipWhite).map(rule=>{const ip=ipRuleValue(rule),state=ipRuleState(rule);return `<tr><td><code>${ip}</code></td><td><span class="toggle ${state==='on'?'on':'off'}" onclick="toggleIPState('${ip}','${state}')"></span></td><td><button class="btn btn-danger btn-sm" onclick="removeIP('${ip}')">移除</button></td></tr>`}).join('')||'<tr><td colspan="3" class="empty">暂无</td></tr>'}</tbody></table></div>`);
 }
 async function addIP(){const ip=$('#newIP').value.trim();if(!ip)return;const r=await api('blacklist_add',{method:'POST',body:{ip,type:_blType}});if(r&&r.ok){toast(r.message);$('#newIP').value='';page_blacklist()}}
 async function removeIP(ip){const r=await api('blacklist_remove',{method:'POST',body:{ip,type:_blType}});if(r&&r.ok){toast(r.message);page_blacklist()}}
+async function toggleIPState(ip,state){const ns=state==='on'?'off':'on';const r=await api('blacklist_state',{method:'POST',body:{ip,type:_blType,state:ns}});if(r&&r.ok){toast('状态已更新');page_blacklist()}else toast('状态更新失败','error')}
 
 async function page_autoban(){
   const d=await api('autoban_config');if(!d)return;const c=d.config||{};

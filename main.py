@@ -16,13 +16,14 @@ from autoban import (
 )
 
 app = FastAPI(title="WAF Panel")
+app.mount("/static", StaticFiles(directory="/opt/waf-panel/static"), name="static")
 
 # ── 认证中间件 ────────────────────────────────────
 def get_token(request: Request) -> str:
     return request.cookies.get("waf_token", "")
 
 def require_auth(request: Request):
-    if request.url.path == "/login": return
+    if request.url.path == "/login" or request.url.path.startswith("/static/"): return
     token = get_token(request)
     if not token or not auth_verify_token(token):
         # API 请求返回 401 JSON
@@ -197,19 +198,18 @@ async def unblock(request: Request):
     db.commit(); db.close()
     return {"ok": True, "message": "已解除封锁"}
 
+def _attack_map_sql():
+    return """
+        SELECT i.value as ip, COUNT(a.id) as count, MAX(a.localtime) as last_time
+        FROM ip.ips i JOIN attack_logs a ON a.ip_id=i.id GROUP BY i.id ORDER BY count DESC LIMIT 200
+    """
+
 # ── API: 拦截地图 ─────────────────────────────────
 @app.get("/api/map")
 async def attack_map():
-    # 获取攻击者 IP 列表
-    db = sqlite3.connect(f"file:{WAF_DB}/ips.db?mode=ro", uri=True)
-    db.row_factory = sqlite3.Row
-    adb = sqlite3.connect(f"file:{WAF_DB}/attack_logs.db?mode=ro", uri=True)
-    adb.row_factory = sqlite3.Row
-    rows = adb.execute("""
-        SELECT i.value as ip, COUNT(a.id) as count, MAX(a.localtime) as last_time
-        FROM ips i JOIN attack_logs a ON a.ip_id=i.id GROUP BY i.id ORDER BY count DESC LIMIT 200
-    """).fetchall()
-    adb.close(); db.close()
+    db = db_connect(["ip"])
+    rows = db.execute(_attack_map_sql()).fetchall()
+    db.close()
     # 批量 GeoIP
     ips = [r["ip"] for r in rows]
     geo_data = {}
@@ -299,13 +299,13 @@ def _normalize_ip_rule(rule):
         return None
     typ = rule.get("type")
     if typ == "ipv4" and rule.get("ipv4"):
-        return {"type": "ipv4", "ipv4": rule["ipv4"].strip()}
+        return _complete_ip_rule({**rule, "type": "ipv4", "ipv4": rule["ipv4"].strip()})
     if typ == "ipv6" and rule.get("ipv6"):
-        return {"type": "ipv6", "ipv6": rule["ipv6"].strip()}
+        return _complete_ip_rule({**rule, "type": "ipv6", "ipv6": rule["ipv6"].strip()})
     if typ == "ipArr" and rule.get("ipStart") and rule.get("ipEnd"):
-        return {"type": "ipArr", "ipStart": rule["ipStart"].strip(), "ipEnd": rule["ipEnd"].strip()}
+        return _complete_ip_rule({**rule, "type": "ipArr", "ipStart": rule["ipStart"].strip(), "ipEnd": rule["ipEnd"].strip()})
     if typ == "ipGroup" and rule.get("ipGroup"):
-        return {"type": "ipGroup", "ipGroup": rule["ipGroup"].strip()}
+        return _complete_ip_rule({**rule, "type": "ipGroup", "ipGroup": rule["ipGroup"].strip()})
     for key in ("ipv4", "ipv6", "ipGroup"):
         if rule.get(key):
             return _make_ip_rule(rule[key])
@@ -316,12 +316,26 @@ def _make_ip_rule(value):
     if not value: return None
     if "-" in value:
         start, end = [x.strip() for x in value.split("-", 1)]
-        return {"type": "ipArr", "ipStart": start, "ipEnd": end}
+        return _complete_ip_rule({"type": "ipArr", "ipStart": start, "ipEnd": end})
     if ":" in value:
-        return {"type": "ipv6", "ipv6": value} if "/" not in value else {"type": "ipGroup", "ipGroup": value}
+        return _complete_ip_rule({"type": "ipv6", "ipv6": value}) if "/" not in value else _complete_ip_rule({"type": "ipGroup", "ipGroup": value})
     if "/" in value:
-        return {"type": "ipGroup", "ipGroup": value}
-    return {"type": "ipv4", "ipv4": value}
+        return _complete_ip_rule({"type": "ipGroup", "ipGroup": value})
+    return _complete_ip_rule({"type": "ipv4", "ipv4": value})
+
+def _complete_ip_rule(rule):
+    full = {
+        "name": rule.get("name", ""),
+        "state": rule.get("state") or "on",
+        "type": rule.get("type", "ipv4"),
+        "ipv4": rule.get("ipv4", ""),
+        "ipv6": rule.get("ipv6", ""),
+        "ipStart": rule.get("ipStart", ""),
+        "ipEnd": rule.get("ipEnd", ""),
+        "ipGroup": rule.get("ipGroup", ""),
+        "description": rule.get("description", ""),
+    }
+    return full
 
 def _ip_rule_value(rule):
     rule = _normalize_ip_rule(rule)
@@ -330,6 +344,17 @@ def _ip_rule_value(rule):
     if rule["type"] == "ipGroup": return rule["ipGroup"]
     if rule["type"] == "ipArr": return f'{rule["ipStart"]}-{rule["ipEnd"]}'
     return ""
+
+def _set_ip_rule_state(name, ip, state):
+    data = _read_blacklist_file(name)
+    changed = False
+    for rule in data:
+        if _ip_rule_value(rule) == ip:
+            rule["state"] = "on" if state == "on" else "off"
+            changed = True
+    if changed:
+        _write_blacklist_file(name, data)
+    return changed
 
 @app.get("/api/blacklist")
 async def blacklist_get():
@@ -359,6 +384,16 @@ async def blacklist_remove(request: Request):
     data = [x for x in _read_blacklist_file(lst) if _ip_rule_value(x) != ip]
     _write_blacklist_file(lst, data)
     return {**{"ok": True, "message": f"已移除 {ip}"}, **nginx_reload()}
+
+@app.post("/api/blacklist_state")
+async def blacklist_state(request: Request):
+    body = await request.json()
+    ip = body["ip"].strip()
+    state = "on" if body.get("state") == "on" else "off"
+    lst = "ipWhite" if body.get("type") == "white" else "ipBlack"
+    if not _set_ip_rule_state(lst, ip, state):
+        raise HTTPException(404, "规则不存在")
+    return {**{"ok": True, "message": "状态已更新"}, **nginx_reload()}
 
 # ── API: ASN 查询 ─────────────────────────────────
 @app.get("/api/asn_lookup")
