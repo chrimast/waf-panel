@@ -7,3 +7,4 @@ venv/
 autoban.json
 scripts/
 generated/
+backups/
