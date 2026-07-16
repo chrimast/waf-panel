@@ -8,6 +8,12 @@ from fastapi.staticfiles import StaticFiles
 import os, sqlite3, json, subprocess
 
 from config import *
+from autoban import (
+    apply_autoban_config,
+    fail2ban_status,
+    load_autoban_config,
+    restart_fail2ban,
+)
 
 app = FastAPI(title="WAF Panel")
 
@@ -421,6 +427,48 @@ async def page_save(request: Request):
     if not os.path.exists(path): raise HTTPException(404, "文件不存在")
     with open(path, 'w') as f: f.write(body["content"])
     return {**{"ok": True, "message": "已保存"}, **nginx_reload()}
+
+# ── API: 自动封禁 / fail2ban 联动 ──────────────────
+@app.get("/api/autoban_config")
+async def autoban_config_get():
+    cfg = load_autoban_config()
+    status = fail2ban_status(cfg.get("jail_name"))
+    return {"config": cfg, "status": status}
+
+@app.post("/api/autoban_config")
+async def autoban_config_set(request: Request):
+    body = await request.json()
+    cfg = apply_autoban_config(body)
+    return {"ok": True, "message": "已保存自动封禁配置", "config": cfg}
+
+@app.post("/api/autoban_restart")
+async def autoban_restart():
+    return restart_fail2ban()
+
+@app.get("/api/autoban_status")
+async def autoban_status():
+    cfg = load_autoban_config()
+    return fail2ban_status(cfg.get("jail_name"))
+
+@app.post("/api/autoban_ban")
+async def autoban_ban(request: Request):
+    body = await request.json()
+    ip = body.get("ip", "").strip()
+    if not ip: raise HTTPException(400, "IP 不能为空")
+    cfg = load_autoban_config()
+    jail = cfg.get("jail_name", "waf-panel-autoban")
+    out = subprocess.run(["fail2ban-client", "set", jail, "banip", ip], capture_output=True, text=True)
+    return {"ok": out.returncode == 0, "output": (out.stdout + out.stderr).strip()}
+
+@app.post("/api/autoban_unban")
+async def autoban_unban(request: Request):
+    body = await request.json()
+    ip = body.get("ip", "").strip()
+    if not ip: raise HTTPException(400, "IP 不能为空")
+    cfg = load_autoban_config()
+    jail = cfg.get("jail_name", "waf-panel-autoban")
+    out = subprocess.run(["fail2ban-client", "set", jail, "unbanip", ip], capture_output=True, text=True)
+    return {"ok": out.returncode == 0, "output": (out.stdout + out.stderr).strip()}
 
 # ── API: Nginx 重载 ───────────────────────────────
 @app.post("/api/reload")

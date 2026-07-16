@@ -5,29 +5,29 @@
 <title>WAF 管理面板</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <style>
-:root{--bg:#1a1b1e;--card:#25262b;--border:#373a40;--text:#c1c2c5;--muted:#909296;--primary:#4c6ef5;--danger:#e03131;--success:#2f9e44;--warning:#f08c00;--radius:8px}
+:root{--bg:#f5f7fb;--card:#ffffff;--border:#d8dee9;--text:#1f2937;--muted:#667085;--primary:#2563eb;--danger:#dc2626;--success:#16a34a;--warning:#d97706;--radius:8px}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh}
-.sidebar{width:220px;background:var(--card);padding:20px 0;border-right:1px solid var(--border);flex-shrink:0}
-.sidebar h2{padding:0 20px 20px;font-size:16px;color:#fff;border-bottom:1px solid var(--border);margin-bottom:12px}
-.sidebar a{display:block;padding:10px 20px;color:var(--muted);text-decoration:none;font-size:14px;transition:.2s;border-left:3px solid transparent;cursor:pointer}
-.sidebar a:hover,.sidebar a.active{color:#fff;background:rgba(255,255,255,.05);border-left-color:var(--primary)}
+.sidebar{width:150px;background:#fff;padding:16px 0;border-right:1px solid var(--border);flex-shrink:0}
+.sidebar h2{padding:0 12px 16px;font-size:14px;color:#111827;border-bottom:1px solid var(--border);margin-bottom:10px}
+.sidebar a{display:block;padding:9px 12px;color:var(--muted);text-decoration:none;font-size:13px;transition:.2s;border-left:3px solid transparent;cursor:pointer;white-space:nowrap}
+.sidebar a:hover,.sidebar a.active{color:#111827;background:#eef4ff;border-left-color:var(--primary)}
 .main{flex:1;padding:24px;overflow-y:auto;max-height:100vh}
-h1{font-size:22px;margin-bottom:20px;color:#fff}
+h1{font-size:22px;margin-bottom:20px;color:#111827}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
 .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
 .card .label{font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
-.card .value{font-size:28px;font-weight:700;color:#fff}
+.card .value{font-size:28px;font-weight:700;color:#111827}
 .card .sub{font-size:12px;color:var(--muted);margin-top:4px}
 table{width:100%;border-collapse:collapse}th,td{padding:10px 14px;text-align:left;font-size:13px;border-bottom:1px solid var(--border)}
-th{color:var(--muted);font-weight:600;background:rgba(255,255,255,.02);position:sticky;top:0}
-tr:hover td{background:rgba(255,255,255,.02)}
+th{color:var(--muted);font-weight:600;background:#f8fafc;position:sticky;top:0}
+tr:hover td{background:#f8fafc}
 .badge{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
 .badge-danger{background:rgba(224,49,49,.2);color:var(--danger)}.badge-success{background:rgba(47,158,68,.2);color:var(--success)}.badge-warn{background:rgba(240,140,0,.2);color:var(--warning)}
 .btn{padding:8px 16px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;transition:.2s}
 .btn-primary{background:var(--primary);color:#fff}.btn-primary:hover{opacity:.85}
 .btn-danger{background:var(--danger);color:#fff}.btn-sm{padding:4px 10px;font-size:12px}
-input,select,textarea{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;outline:none;width:100%}
+input,select,textarea{background:#fff;border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;outline:none;width:100%}
 input:focus,select:focus,textarea:focus{border-color:var(--primary)}
 .form-group{margin-bottom:16px}.form-group label{display:block;margin-bottom:6px;font-size:13px;color:var(--muted)}
 .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
@@ -44,7 +44,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary)}
 .modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000}
 .modal{background:var(--card);border-radius:var(--radius);padding:24px;max-width:700px;width:90%;max-height:80vh;overflow-y:auto;border:1px solid var(--border)}
 .modal h3{margin-bottom:16px;color:#fff}.modal-close{float:right;cursor:pointer;color:var(--muted);font-size:20px;background:none;border:none}
-pre{background:var(--bg);padding:12px;border-radius:6px;font-size:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-all}
+pre{background:#f8fafc;padding:12px;border-radius:6px;font-size:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-all}
 .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;color:#fff;font-size:13px;z-index:2000;animation:slideUp .3s}
 .toast-success{background:var(--success)}.toast-error{background:var(--danger)}
 @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
@@ -60,6 +60,7 @@ pre{background:var(--bg);padding:12px;border-radius:6px;font-size:12px;overflow-
   <a class="nav-link" onclick="nav('blocks')">🚫 封锁记录</a>
   <a class="nav-link" onclick="nav('geo')">🌍 地理封禁</a>
   <a class="nav-link" onclick="nav('blacklist')">🔒 IP黑/白名单</a>
+  <a class="nav-link" onclick="nav('autoban')">🧱 自动封禁</a>
   <a class="nav-link" onclick="nav('pages')">📄 拦截页面</a>
 </nav>
 <main class="main" id="main"></main>
@@ -69,7 +70,7 @@ pre{background:var(--bg);padding:12px;border-radius:6px;font-size:12px;overflow-
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s),api=async(action,opt={})=>{const u='/api/'+action+(opt.params?'?'+new URLSearchParams(opt.params):'');const r=await fetch(u,{method:opt.method||'GET',headers:{'Content-Type':'application/json'},body:opt.body?JSON.stringify(opt.body):void 0});if(r.status===401){const j=await r.json();if(j.need_login){location.href='/login';return{}}}return r.json()};
 function toast(msg,type='success'){const t=document.createElement('div');t.className='toast toast-'+type;t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),3000)}
 function setMain(h){$('#main').innerHTML=h}
-function nav(page){$$('.nav-link').forEach(a=>a.classList.remove('active'));const l=$(`.nav-link:nth-child(${{dashboard:2,logs:3,mapview:4,blocks:5,geo:6,blacklist:7,pages:8}[page]})`);if(l)l.classList.add('active');window['page_'+page]()}
+function nav(page){$$('.nav-link').forEach(a=>a.classList.remove('active'));const l=$(`.nav-link:nth-child(${{dashboard:2,logs:3,mapview:4,blocks:5,geo:6,blacklist:7,autoban:8,pages:9}[page]})`);if(l)l.classList.add('active');window['page_'+page]()}
 function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function ipRuleValue(rule){if(typeof rule==='string')return rule;if(!rule||typeof rule!=='object')return '';if(rule.type==='ipv4')return rule.ipv4||'';if(rule.type==='ipv6')return rule.ipv6||'';if(rule.type==='ipGroup')return rule.ipGroup||'';if(rule.type==='ipArr')return `${rule.ipStart||''}-${rule.ipEnd||''}`;return rule.ipv4||rule.ipv6||rule.ipGroup||''}
 
@@ -128,7 +129,7 @@ async function page_mapview(){
   $('#main .loading').remove();
   if(!d.points.length){$('#map').outerHTML='<div class="empty" style="height:400px">暂无数据</div>';return}
   const map=L.map('map').setView([30,20],2);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'© CartoDB',maxZoom:18}).addTo(map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© CartoDB',maxZoom:18}).addTo(map);
   d.points.forEach(p=>{L.circleMarker([p.lat,p.lon],{radius:Math.min(20,6+Math.log(p.count+1)*3),fillColor:'#e03131',color:'#ff6b6b',weight:1,fillOpacity:.7}).addTo(map).bindPopup(`<b>${p.ip}</b><br>${p.country}, ${p.city||''}<br>攻击: ${p.count}次<br>最近: ${p.last_time}`)});
 }
 
@@ -194,6 +195,48 @@ async function page_blacklist(){
 }
 async function addIP(){const ip=$('#newIP').value.trim();if(!ip)return;const r=await api('blacklist_add',{method:'POST',body:{ip,type:_blType}});if(r&&r.ok){toast(r.message);$('#newIP').value='';page_blacklist()}}
 async function removeIP(ip){const r=await api('blacklist_remove',{method:'POST',body:{ip,type:_blType}});if(r&&r.ok){toast(r.message);page_blacklist()}}
+
+async function page_autoban(){
+  const d=await api('autoban_config');if(!d)return;const c=d.config||{};
+  setMain(`<h1>🧱 自动封禁</h1>
+<div class="card" style="margin-bottom:16px">
+  <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:8px">
+    <div><label><input type="checkbox" id="abEnabled" ${c.enabled?'checked':''} style="width:auto;margin-right:6px">启用 fail2ban 联动</label></div>
+    <div><label><input type="checkbox" id="abLocal" ${c.local_ban?'checked':''} style="width:auto;margin-right:6px">本机防火墙</label></div>
+    <div><label><input type="checkbox" id="abWaf" ${c.waf_blacklist?'checked':''} style="width:auto;margin-right:6px">写入 WAF 黑名单</label></div>
+    <div><label><input type="checkbox" id="abCf" ${c.cloudflare_ban?'checked':''} style="width:auto;margin-right:6px">Cloudflare 封禁</label></div>
+  </div>
+  <div class="row">
+    <div class="form-group" style="width:160px"><label>Jail 名称</label><input id="abJail" value="${c.jail_name||''}"></div>
+    <div class="form-group" style="width:160px"><label>Filter 名称</label><input id="abFilter" value="${c.filter_name||''}"></div>
+    <div class="form-group" style="width:110px"><label>maxretry</label><input id="abMax" type="number" value="${c.maxretry||5}"></div>
+    <div class="form-group" style="width:110px"><label>findtime</label><input id="abFind" type="number" value="${c.findtime||600}"></div>
+    <div class="form-group" style="width:110px"><label>bantime</label><input id="abBan" type="number" value="${c.bantime||3600}"></div>
+    <div class="form-group" style="width:130px"><label>防火墙链</label><input id="abChain" value="${c.chain||'DOCKER-USER'}"></div>
+  </div>
+  <div class="form-group"><label>匹配状态码（逗号分隔）</label><input id="abCodes" value="${(c.status_codes||[]).join(',')}"></div>
+  <div class="form-group"><label>日志路径（每行一个）</label><textarea id="abLogpaths" style="height:74px">${(c.logpaths||[]).join('\n')}</textarea></div>
+  <div class="form-group"><label>忽略 IP/CIDR（每行一个）</label><textarea id="abIgnoreIps" style="height:56px">${(c.ignore_ips||[]).join('\n')}</textarea></div>
+  <div class="form-group"><label>忽略正则</label><input id="abIgnoreRegex" value="${escapeHtml(c.ignore_regex||'')}"></div>
+</div>
+<div class="card" style="margin-bottom:16px">
+  <h3 style="color:#111827;font-size:15px;margin-bottom:12px">Cloudflare 配置</h3>
+  <div class="row">
+    <div class="form-group" style="width:260px"><label>邮箱</label><input id="abCfEmail" value="${c.cloudflare_email||''}"></div>
+    <div class="form-group" style="width:360px"><label>API Key / Token</label><input id="abCfKey" type="password" value="${c.cloudflare_api_key||''}"></div>
+    <div class="form-group" style="width:220px"><label>备注</label><input id="abCfNote" value="${c.cloudflare_note||''}"></div>
+  </div>
+</div>
+<div class="card">
+  <div class="row" style="margin-bottom:12px"><button class="btn btn-primary" onclick="saveAutoban()">保存配置</button><button class="btn btn-primary" onclick="restartAutoban()">重启 fail2ban</button><button class="btn" style="background:var(--border)" onclick="refreshAutobanStatus()">刷新状态</button><input id="abManualIp" placeholder="手动封禁/解封 IP" style="width:200px"><button class="btn btn-danger btn-sm" onclick="manualAutoban('ban')">封禁</button><button class="btn btn-sm" style="background:var(--border)" onclick="manualAutoban('unban')">解封</button></div>
+  <pre id="abStatus">${escapeHtml(d.status?.output||'')}</pre>
+</div>`);
+}
+function autobanPayload(){return {enabled:$('#abEnabled').checked,jail_name:$('#abJail').value.trim(),filter_name:$('#abFilter').value.trim(),maxretry:+$('#abMax').value,findtime:+$('#abFind').value,bantime:+$('#abBan').value,chain:$('#abChain').value.trim(),status_codes:$('#abCodes').value.split(',').map(x=>x.trim()).filter(Boolean),logpaths:$('#abLogpaths').value.split('\n').map(x=>x.trim()).filter(Boolean),ignore_ips:$('#abIgnoreIps').value.split('\n').map(x=>x.trim()).filter(Boolean),ignore_regex:$('#abIgnoreRegex').value,local_ban:$('#abLocal').checked,waf_blacklist:$('#abWaf').checked,cloudflare_ban:$('#abCf').checked,cloudflare_email:$('#abCfEmail').value.trim(),cloudflare_api_key:$('#abCfKey').value.trim(),cloudflare_note:$('#abCfNote').value.trim()}}
+async function saveAutoban(){const r=await api('autoban_config',{method:'POST',body:autobanPayload()});if(r&&r.ok)toast('已保存自动封禁配置');else toast('保存失败','error')}
+async function restartAutoban(){const r=await api('autoban_restart',{method:'POST'});if(r&&r.ok){toast('fail2ban 已重启');refreshAutobanStatus()}else{toast('重启失败','error');if(r)$('#abStatus').textContent=r.output||''}}
+async function refreshAutobanStatus(){const r=await api('autoban_status');if(r)$('#abStatus').textContent=r.output||''}
+async function manualAutoban(op){const ip=$('#abManualIp').value.trim();if(!ip)return;const r=await api(op==='ban'?'autoban_ban':'autoban_unban',{method:'POST',body:{ip}});if(r&&r.ok){toast(op==='ban'?'已封禁':'已解封');refreshAutobanStatus()}else{toast('操作失败','error');if(r)$('#abStatus').textContent=r.output||''}}
 
 async function page_pages(){
   const d=await api('pages');if(!d)return;
