@@ -31,6 +31,9 @@ def default_autoban_config():
         ],
         "ignore_regex": r"^.*(/(?:robots\.txt|favicon\.ico|.*\.(?:jpg|png|gif|jpeg|svg|webp|bmp|tiff|css|js|woff|woff2|eot|ttf|otf)))",
         "ignore_ips": ["127.0.0.1/8"],
+        "local_ban": True,
+        "banaction": "iptables-allports",
+        "chain": "DOCKER-USER",
         "cloudflare_ban": False,
         "waf_blacklist": True,
         "cloudflare_email": "",
@@ -92,10 +95,10 @@ def normalize_autoban_config(cfg):
     base["ignore_ips"] = [str(x).strip() for x in _as_list(base.get("ignore_ips")) if str(x).strip()]
     base["cf_real_ip_ranges"] = [str(x).strip() for x in _as_list(base.get("cf_real_ip_ranges")) if str(x).strip()]
     base["jails"] = [_normalize_jail(x) for x in _as_list(base.get("jails")) if isinstance(x, dict)]
-    for key in ("enabled", "cloudflare_ban", "waf_blacklist", "cf_real_ip_enabled", "real_ip_recursive"):
+    for key in ("enabled", "local_ban", "cloudflare_ban", "waf_blacklist", "cf_real_ip_enabled", "real_ip_recursive"):
         base[key] = bool(base.get(key))
-    base.pop("local_ban", None)
-    base.pop("chain", None)
+    base["banaction"] = str(base.get("banaction") or "iptables-allports").strip()
+    base["chain"] = str(base.get("chain") or "DOCKER-USER").strip()
     return base
 
 
@@ -125,6 +128,8 @@ def generate_fail2ban_files(cfg):
     codes = "|".join(str(c) for c in cfg["status_codes"])
     logpaths = "\n          ".join(cfg["logpaths"])
     actions = []
+    if cfg["local_ban"]:
+        actions.append(f"{cfg['banaction']}[chain={cfg['chain']}]")
     if cfg["cloudflare_ban"]:
         actions.append("waf-panel-cloudflare")
     if cfg["waf_blacklist"]:
@@ -141,6 +146,8 @@ logpath = {logpaths}
 maxretry = {cfg['maxretry']}
 findtime = {cfg['findtime']}
 bantime = {cfg['bantime']}
+banaction = {cfg['banaction']}
+chain = {cfg['chain']}
 ignoreip = {ignoreip}
 action = {action_text}
 """
@@ -175,6 +182,8 @@ def generate_jail_local(cfg, action_text, logpaths, ignoreip):
 bantime = {cfg['bantime']}
 findtime = {cfg['findtime']}
 maxretry = {cfg['maxretry']}
+banaction = {cfg['banaction']}
+chain = {cfg['chain']}
 action = {action_text}
 """]
     for jail in cfg["jails"]:
@@ -188,6 +197,8 @@ logpath = {logpaths}
 maxretry = {jail['maxretry']}
 findtime = {jail['findtime']}
 bantime = {jail['bantime']}
+banaction = {cfg['banaction']}
+chain = {cfg['chain']}
 ignoreip = {ignoreip}
 action = {action_text}
 """)

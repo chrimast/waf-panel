@@ -9,7 +9,7 @@ from autoban import default_autoban_config, generate_fail2ban_files, save_autoba
 
 
 class AutobanConfigTests(unittest.TestCase):
-    def test_generate_fail2ban_files_includes_editable_values_without_local_firewall(self):
+    def test_generate_fail2ban_files_includes_editable_values_and_local_firewall(self):
         cfg = default_autoban_config()
         cfg.update({
             "enabled": True,
@@ -22,6 +22,9 @@ class AutobanConfigTests(unittest.TestCase):
             "status_codes": [403, 429, 444],
             "ignore_regex": "^.*static.*$",
             "ignore_ips": ["127.0.0.1/8", "192.0.2.1"],
+            "local_ban": True,
+            "banaction": "iptables-allports",
+            "chain": "DOCKER-USER",
             "cloudflare_ban": True,
             "waf_blacklist": True,
             "cloudflare_email": "user@example.com",
@@ -36,8 +39,11 @@ class AutobanConfigTests(unittest.TestCase):
         self.assertIn("findtime = 900", files["jail"])
         self.assertIn("bantime = 7200", files["jail"])
         self.assertIn("/tmp/access.log", files["jail"])
-        self.assertNotIn("iptables-allports", files["jail"])
-        self.assertNotIn("chain =", files["jail"])
+        self.assertIn("banaction = iptables-allports", files["jail"])
+        self.assertIn("chain = DOCKER-USER", files["jail"])
+        self.assertIn("iptables-allports", files["jail"])
+        self.assertIn("banaction = iptables-allports", files["jail_local"])
+        self.assertIn("chain = DOCKER-USER", files["jail_local"])
         self.assertIn("waf-panel-cloudflare", files["jail"])
         self.assertIn("1panel-waf-blacklist", files["jail"])
         self.assertIn("(403|429|444)", files["filter"])
