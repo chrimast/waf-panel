@@ -1,12 +1,16 @@
 import json
 import os
+import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 PANEL_DIR = Path("/opt/waf-panel")
 AUTOBAN_CONFIG_PATH = PANEL_DIR / "autoban.json"
 FAIL2BAN_JAIL_PATH = Path("/etc/fail2ban/jail.d/waf-panel-autoban.local")
 FAIL2BAN_FILTER_PATH = Path("/etc/fail2ban/filter.d/waf-panel-autoban.conf")
+MANAGED_JAILS_START = "# WAF-PANEL-START"
+MANAGED_JAILS_END = "# WAF-PANEL-END"
 FAIL2BAN_WAF_ACTION_PATH = Path("/etc/fail2ban/action.d/1panel-waf-blacklist.conf")
 FAIL2BAN_CF_ACTION_PATH = Path("/etc/fail2ban/action.d/waf-panel-cloudflare.conf")
 FAIL2BAN_JAIL_LOCAL_PATH = Path("/etc/fail2ban/jail.local")
@@ -156,6 +160,7 @@ ignoreip = {ignoreip}
 action = {action_text}
 """
     jail_local = generate_jail_local(cfg, action_text, logpaths, ignoreip)
+    additional_jails = generate_additional_jails(cfg, action_text, logpaths, ignoreip)
     filter_conf = f"""[Definition]
 failregex = ^<HOST> .* HTTP.* ({codes}) .*$
 ignoreregex = {cfg['ignore_regex']}
@@ -177,7 +182,7 @@ _cf_api_prms = -H 'X-Auth-Email: <cfuser>' -H 'X-Auth-Key: <cftoken>' -H 'Conten
 cfuser = {cfg['cloudflare_email']}
 cftoken = {cfg['cloudflare_api_key']}
 """
-    return {"jail": jail, "jail_local": jail_local, "filter": filter_conf, "waf_action": waf_action, "cloudflare_action": cf_action, "nginx_real_ip": nginx_real_ip}
+    return {"jail": jail, "jail_local": jail_local, "managed_jails": jail + "\n" + additional_jails, "filter": filter_conf, "waf_action": waf_action, "cloudflare_action": cf_action, "nginx_real_ip": nginx_real_ip}
 
 
 def generate_jail_local(cfg, action_text, logpaths, ignoreip):
@@ -194,7 +199,7 @@ action = {action_text}
         if not jail.get("name"):
             continue
         parts.append(f"""[{jail['name']}]
-enabled = {'true' if jail['enabled'] else 'false'}
+enabled = {'true' if cfg['enabled'] and jail['enabled'] else 'false'}
 filter = {jail['filter']}
 port = {cfg['port']}
 logpath = {logpaths}
@@ -209,6 +214,37 @@ action = {action_text}
     return "\n".join(parts)
 
 
+def generate_additional_jails(cfg, action_text, logpaths, ignoreip):
+    parts = []
+    for jail in cfg["jails"]:
+        if not jail.get("name"):
+            continue
+        parts.append(f"""[{jail['name']}]
+enabled = {'true' if cfg['enabled'] and jail['enabled'] else 'false'}
+filter = {jail['filter']}
+port = {cfg['port']}
+logpath = {logpaths}
+maxretry = {jail['maxretry']}
+findtime = {jail['findtime']}
+bantime = {jail['bantime']}
+banaction = {cfg['banaction']}
+chain = {cfg['chain']}
+ignoreip = {ignoreip}
+action = {action_text}
+""")
+    return "\n".join(parts)
+
+
+def sync_managed_jails(existing, managed):
+    start = existing.find(MANAGED_JAILS_START)
+    end = existing.find(MANAGED_JAILS_END)
+    if start >= 0 and end >= start:
+        end += len(MANAGED_JAILS_END)
+        existing = existing[:start].rstrip() + existing[end:].lstrip("\n")
+    block = f"{MANAGED_JAILS_START}\n{managed.strip()}\n{MANAGED_JAILS_END}"
+    return existing.rstrip() + "\n\n" + block + "\n"
+
+
 def generate_nginx_real_ip(cfg):
     if not cfg.get("cf_real_ip_enabled"):
         return ""
@@ -219,15 +255,25 @@ def generate_nginx_real_ip(cfg):
     return "\n".join(lines) + "\n"
 
 
+def _backup_file(path):
+    path = Path(path)
+    if not path.exists(): return None
+    backup = path.with_name(f"{path.name}.bak.{datetime.now().strftime('%Y%m%d%H%M%S')}")
+    shutil.copy2(path, backup)
+    return backup
+
+
 def apply_autoban_config(cfg):
     cfg = save_autoban_config(cfg)
     files = generate_fail2ban_files(cfg)
-    FAIL2BAN_JAIL_PATH.parent.mkdir(parents=True, exist_ok=True)
     FAIL2BAN_FILTER_PATH.parent.mkdir(parents=True, exist_ok=True)
     FAIL2BAN_WAF_ACTION_PATH.parent.mkdir(parents=True, exist_ok=True)
-    FAIL2BAN_JAIL_PATH.write_text(files["jail"])
-    # jail.local belongs to 1Panel/system fail2ban configuration. Never overwrite it.
-    # Overwriting it removes the user's sshd port and logpath settings.
+    existing = FAIL2BAN_JAIL_LOCAL_PATH.read_text() if FAIL2BAN_JAIL_LOCAL_PATH.exists() else ""
+    _backup_file(FAIL2BAN_JAIL_LOCAL_PATH)
+    FAIL2BAN_JAIL_LOCAL_PATH.write_text(sync_managed_jails(existing, files["managed_jails"]))
+    if FAIL2BAN_JAIL_PATH.exists():
+        _backup_file(FAIL2BAN_JAIL_PATH)
+        FAIL2BAN_JAIL_PATH.unlink()
     FAIL2BAN_FILTER_PATH.write_text(files["filter"])
     FAIL2BAN_WAF_ACTION_PATH.write_text(files["waf_action"])
     FAIL2BAN_CF_ACTION_PATH.write_text(files["cloudflare_action"])

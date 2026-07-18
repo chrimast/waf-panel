@@ -103,6 +103,8 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertIn("toggleLogBan(${r.id},'${r.ip||''}','permanent'", self.template)
 
     def test_autoban_uses_port_and_preset_selects(self):
+        self.assertIn(">主 Jail</h3>", self.template)
+        self.assertIn("附加 Jails（JSON，可编辑）", self.template)
         self.assertIn('<label>监听端口</label><input id="abPort"', self.template)
         self.assertIn("c.port||'80,443'", self.template)
         self.assertIn('<select id="abBanaction">', self.template)

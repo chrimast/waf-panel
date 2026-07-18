@@ -227,6 +227,7 @@ async function page_autoban(){
   const d=await api('autoban_config');if(!d)return;const c=d.config||{};
   setMain(`<h1>🧱 自动封禁</h1>
 <div class="card" style="margin-bottom:16px">
+  <h3 style="color:#111827;font-size:15px;margin-bottom:12px">主 Jail</h3>
   <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:8px">
     <div><label><input type="checkbox" id="abEnabled" ${c.enabled?'checked':''} style="width:auto;margin-right:6px">启用 fail2ban 联动</label></div>
     <div><label><input type="checkbox" id="abLocal" ${c.local_ban?'checked':''} style="width:auto;margin-right:6px">本机防火墙</label></div>
@@ -261,7 +262,7 @@ async function page_autoban(){
   <div class="form-group"><label>Cloudflare IP 段（每行一个）</label><textarea id="abCfRanges" style="height:120px">${(c.cf_real_ip_ranges||[]).join('\n')}</textarea></div>
 </div>
 <div class="card" style="margin-bottom:16px">
-  <h3 style="color:#111827;font-size:15px;margin-bottom:12px">Fail2ban Jails（JSON，可编辑）</h3>
+  <h3 style="color:#111827;font-size:15px;margin-bottom:12px">附加 Jails（JSON，可编辑）</h3>
   <textarea id="abJails" style="height:220px;font-family:monospace;font-size:12px">${escapeHtml(JSON.stringify(c.jails||[],null,2))}</textarea>
 </div>
 <div class="card">

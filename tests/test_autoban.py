@@ -5,7 +5,13 @@ from pathlib import Path
 import sys
 sys.path.insert(0, "/opt/waf-panel")
 
-from autoban import default_autoban_config, generate_fail2ban_files, save_autoban_config, load_autoban_config
+from autoban import (
+    default_autoban_config,
+    generate_fail2ban_files,
+    load_autoban_config,
+    save_autoban_config,
+    sync_managed_jails,
+)
 
 
 class AutobanConfigTests(unittest.TestCase):
@@ -104,6 +110,43 @@ class AutobanConfigTests(unittest.TestCase):
 
             self.assertEqual(loaded["cloudflare_email"], "ops@example.com")
             self.assertEqual(loaded["cloudflare_api_key"], "token-value")
+
+    def test_sync_managed_jails_preserves_1panel_and_replaces_panel_block(self):
+        original = """#DEFAULT-START
+[DEFAULT]
+bantime = 600
+#DEFAULT-END
+
+[sshd]
+enabled = true
+port = 2233
+"""
+        first = "[waf-panel-autoban]\nenabled = false\n"
+        second = "[waf-panel-autoban]\nenabled = true\n[nginx-cc]\nenabled = true\n"
+
+        once = sync_managed_jails(original, first)
+        twice = sync_managed_jails(once, second)
+
+        self.assertIn("[sshd]", twice)
+        self.assertIn("port = 2233", twice)
+        self.assertEqual(twice.count("# WAF-PANEL-START"), 1)
+        self.assertEqual(twice.count("[waf-panel-autoban]"), 1)
+        self.assertIn("[nginx-cc]", twice)
+        self.assertNotIn("enabled = false", twice)
+
+    def test_generated_managed_jails_include_main_and_json_jails(self):
+        cfg = default_autoban_config()
+        cfg["jails"] = [
+            {"name": "docker-nginx-cc", "enabled": True, "filter": "nginx-cc", "maxretry": 4, "findtime": 300, "bantime": 900}
+        ]
+
+        managed = generate_fail2ban_files(cfg)["managed_jails"]
+
+        self.assertIn("[waf-panel-autoban]", managed)
+        self.assertIn("filter = waf-panel-autoban", managed)
+        self.assertIn("[docker-nginx-cc]", managed)
+        self.assertIn("filter = nginx-cc", managed)
+        self.assertIn("bantime = 900", managed)
 
 
 if __name__ == "__main__":
