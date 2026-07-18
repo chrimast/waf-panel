@@ -263,11 +263,12 @@ async function page_autoban(){
 </div>
 <div class="card" style="margin-bottom:16px">
   <h3 style="color:#111827;font-size:15px;margin-bottom:8px">自定义 Filters（JSON，可编辑）</h3>
-  <div style="font-size:12px;color:var(--muted);margin-bottom:10px">保存后写入独立的 fail2ban filter.d 文件。Filter 依赖：${(d.missing_filters||[]).length?`<span class="badge badge-danger">缺失 ${(d.missing_filters||[]).join(', ')}</span>`:'<span class="badge badge-success">完整</span>'}</div>
+  <div style="font-size:12px;color:var(--muted);margin-bottom:10px">保存路径：<code>/etc/fail2ban/filter.d/&lt;name&gt;.conf</code>，例如 <code>/etc/fail2ban/filter.d/nginx-cc.conf</code>。JSON 的 <code>name</code> 决定文件名；附加 Jail 的 <code>filter</code> 必须填写相同名称。Filter 依赖：${(d.missing_filters||[]).length?`<span class="badge badge-danger">缺失 ${(d.missing_filters||[]).join(', ')}</span>`:'<span class="badge badge-success">完整</span>'}</div>
   <textarea id="abFilters" style="height:180px;font-family:monospace;font-size:12px">${escapeHtml(JSON.stringify(c.custom_filters||[],null,2))}</textarea>
 </div>
 <div class="card" style="margin-bottom:16px">
-  <h3 style="color:#111827;font-size:15px;margin-bottom:12px">附加 Jails（JSON，可编辑）</h3>
+  <h3 style="color:#111827;font-size:15px;margin-bottom:8px">附加 Jails（JSON，可编辑）</h3>
+  <div style="font-size:12px;color:var(--muted);margin-bottom:10px">保存路径：<code>/etc/fail2ban/jail.d/waf-panel-autoban.local</code>。主 Jail 和全部附加 Jails 都写入该文件并由 Fail2ban 加载；各 Jail 通过 filter 字段调用对应 Filter，不经过主 Jail。</div>
   <textarea id="abJails" style="height:220px;font-family:monospace;font-size:12px">${escapeHtml(JSON.stringify(c.jails||[],null,2))}</textarea>
 </div>
 <div class="card">
