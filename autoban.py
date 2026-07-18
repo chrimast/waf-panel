@@ -36,6 +36,13 @@ def default_autoban_config():
         ],
         "ignore_regex": r"^.*(/(?:robots\.txt|favicon\.ico|.*\.(?:jpg|png|gif|jpeg|svg|webp|bmp|tiff|css|js|woff|woff2|eot|ttf|otf)))",
         "ignore_ips": ["127.0.0.1/8"],
+        "custom_filters": [
+            {
+                "name": "nginx-cc",
+                "failregex": r"^<HOST> .* HTTP.* (403|429) .*$",
+                "ignoreregex": r"^.*(\/(?:robots\.txt|favicon\.ico|.*\.(?:jpg|png|gif|jpeg|svg|webp|bmp|tiff|css|js|woff|woff2|eot|ttf|otf))$)",
+            }
+        ],
         "local_ban": True,
         "banaction": "iptables-allports",
         "chain": "DOCKER-USER",
@@ -102,12 +109,24 @@ def normalize_autoban_config(cfg):
     base["port"] = ",".join(port_aliases.get(item.strip(), item.strip()) for item in port.split(",") if item.strip())
     base["ignore_ips"] = [str(x).strip() for x in _as_list(base.get("ignore_ips")) if str(x).strip()]
     base["cf_real_ip_ranges"] = [str(x).strip() for x in _as_list(base.get("cf_real_ip_ranges")) if str(x).strip()]
+    base["custom_filters"] = [_normalize_custom_filter(x) for x in _as_list(base.get("custom_filters")) if isinstance(x, dict)]
     base["jails"] = [_normalize_jail(x) for x in _as_list(base.get("jails")) if isinstance(x, dict)]
     for key in ("enabled", "local_ban", "cloudflare_ban", "waf_blacklist", "cf_real_ip_enabled", "real_ip_recursive"):
         base[key] = bool(base.get(key))
     base["banaction"] = str(base.get("banaction") or "iptables-allports").strip()
     base["chain"] = str(base.get("chain") or "DOCKER-USER").strip()
     return base
+
+
+def _normalize_custom_filter(item):
+    name = str(item.get("name", "")).strip()
+    if name and not all(char.isalnum() or char in "_-" for char in name):
+        raise ValueError(f"无效 Filter 名称: {name}")
+    return {
+        "name": name,
+        "failregex": str(item.get("failregex", "")).strip(),
+        "ignoreregex": str(item.get("ignoreregex", "")).strip(),
+    }
 
 
 def _normalize_jail(jail):
@@ -129,6 +148,32 @@ def _as_list(value):
     if isinstance(value, str):
         return [x.strip() for x in value.replace("\r", "").split("\n") if x.strip()]
     return [value]
+
+
+def generate_custom_filter_files(cfg):
+    cfg = normalize_autoban_config(cfg)
+    files = {}
+    for item in cfg["custom_filters"]:
+        if not item["name"] or not item["failregex"]:
+            continue
+        failregex = "\n            ".join(item["failregex"].splitlines())
+        ignoreregex = "\n              ".join(item["ignoreregex"].splitlines())
+        files[item["name"]] = f"[Definition]\nfailregex = {failregex}\nignoreregex = {ignoreregex}\n"
+    return files
+
+
+def installed_filter_names(directory=FAIL2BAN_FILTER_PATH.parent):
+    directory = Path(directory)
+    return {path.stem for path in directory.glob("*.conf")} if directory.exists() else set()
+
+
+def missing_jail_filters(cfg, installed=None):
+    cfg = normalize_autoban_config(cfg)
+    available = set(installed if installed is not None else installed_filter_names())
+    available.update(generate_custom_filter_files(cfg))
+    available.add(cfg["filter_name"])
+    required = {jail["filter"] for jail in cfg["jails"] if jail["enabled"] and jail["filter"]}
+    return sorted(required - available)
 
 
 def generate_fail2ban_files(cfg):
@@ -263,12 +308,25 @@ def _backup_file(path):
 
 
 def apply_autoban_config(cfg):
-    cfg = save_autoban_config(cfg)
+    try:
+        cfg = normalize_autoban_config(cfg)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(str(exc))
+    missing = missing_jail_filters(cfg)
+    if missing:
+        raise RuntimeError("缺少 Fail2ban Filters: " + ", ".join(missing))
+
     files = generate_fail2ban_files(cfg)
+    custom_filters = generate_custom_filter_files(cfg)
     FAIL2BAN_JAIL_PATH.parent.mkdir(parents=True, exist_ok=True)
     FAIL2BAN_FILTER_PATH.parent.mkdir(parents=True, exist_ok=True)
     FAIL2BAN_WAF_ACTION_PATH.parent.mkdir(parents=True, exist_ok=True)
-    backup = _backup_file(FAIL2BAN_JAIL_PATH)
+    jail_backup = _backup_file(FAIL2BAN_JAIL_PATH)
+    filter_backups = {}
+    for name, content in custom_filters.items():
+        path = FAIL2BAN_FILTER_PATH.parent / f"{name}.conf"
+        filter_backups[path] = _backup_file(path)
+        path.write_text(content)
     FAIL2BAN_JAIL_PATH.write_text(files["managed_jails"].strip() + "\n")
     FAIL2BAN_FILTER_PATH.write_text(files["filter"])
     FAIL2BAN_WAF_ACTION_PATH.write_text(files["waf_action"])
@@ -280,12 +338,17 @@ def apply_autoban_config(cfg):
 
     check = subprocess.run(["fail2ban-client", "-t"], capture_output=True, text=True)
     if check.returncode != 0:
-        if backup:
-            shutil.copy2(backup, FAIL2BAN_JAIL_PATH)
+        if jail_backup:
+            shutil.copy2(jail_backup, FAIL2BAN_JAIL_PATH)
         else:
             FAIL2BAN_JAIL_PATH.unlink(missing_ok=True)
+        for path, backup in filter_backups.items():
+            if backup:
+                shutil.copy2(backup, path)
+            else:
+                path.unlink(missing_ok=True)
         raise RuntimeError((check.stdout + check.stderr).strip() or "Fail2ban 配置校验失败")
-    return cfg
+    return save_autoban_config(cfg)
 
 
 def migrate_autoban_to_dedicated_jail():

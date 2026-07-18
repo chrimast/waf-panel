@@ -7,8 +7,10 @@ sys.path.insert(0, "/opt/waf-panel")
 
 from autoban import (
     default_autoban_config,
+    generate_custom_filter_files,
     generate_fail2ban_files,
     load_autoban_config,
+    missing_jail_filters,
     remove_managed_jails,
     save_autoban_config,
 )
@@ -134,6 +136,41 @@ enabled = false
         self.assertIn("port = 2233", cleaned)
         self.assertNotIn("WAF-PANEL", cleaned)
         self.assertNotIn("[waf-panel-autoban]", cleaned)
+
+    def test_default_config_carries_nginx_cc_filter(self):
+        cfg = default_autoban_config()
+
+        custom_filter = next(item for item in cfg["custom_filters"] if item["name"] == "nginx-cc")
+
+        self.assertIn("^<HOST> .* HTTP.* (403|429) .*$", custom_filter["failregex"])
+        self.assertIn("robots", custom_filter["ignoreregex"])
+
+    def test_generate_custom_filter_files_renders_definition(self):
+        cfg = default_autoban_config()
+        cfg["custom_filters"] = [{
+            "name": "nginx-cc",
+            "failregex": "^<HOST> blocked$",
+            "ignoreregex": "^<HOST> allowed$",
+        }]
+
+        files = generate_custom_filter_files(cfg)
+
+        self.assertEqual(set(files), {"nginx-cc"})
+        self.assertIn("[Definition]", files["nginx-cc"])
+        self.assertIn("failregex = ^<HOST> blocked$", files["nginx-cc"])
+        self.assertIn("ignoreregex = ^<HOST> allowed$", files["nginx-cc"])
+
+    def test_missing_jail_filters_uses_custom_and_installed_filters(self):
+        cfg = default_autoban_config()
+        cfg["jails"] = [
+            {"name": "cc", "enabled": True, "filter": "nginx-cc"},
+            {"name": "bots", "enabled": True, "filter": "nginx-botsearch"},
+            {"name": "missing", "enabled": True, "filter": "not-installed"},
+        ]
+
+        missing = missing_jail_filters(cfg, installed={"nginx-botsearch"})
+
+        self.assertEqual(missing, ["not-installed"])
 
     def test_generated_managed_jails_include_main_and_json_jails(self):
         cfg = default_autoban_config()
