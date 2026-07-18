@@ -103,7 +103,7 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertIn("toggleLogBan(${r.id},'${r.ip||''}','permanent'", self.template)
 
     def test_autoban_uses_port_and_preset_selects(self):
-        self.assertIn('<label>设置端口</label><input id="abPort"', self.template)
+        self.assertIn('<label>监听端口</label><input id="abPort"', self.template)
         self.assertIn("c.port||'80,443'", self.template)
         self.assertIn('<select id="abBanaction">', self.template)
         for action in ("iptables-allports", "iptables-multiport", "firewallcmd-ipset", "ufw"):
