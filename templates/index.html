@@ -237,11 +237,11 @@ async function page_autoban(){
   <div class="row">
     <div class="form-group" style="width:160px"><label>主 Jail 名称</label><input id="abJail" value="${c.jail_name||''}"></div>
     <div class="form-group" style="width:160px"><label>主 Filter 名称</label><input id="abFilter" value="${c.filter_name||''}"></div>
-    <div class="form-group" style="width:160px"><label>监听端口</label><input id="abPort" value="${c.port||'http,https'}"></div>
+    <div class="form-group" style="width:160px"><label>设置端口</label><input id="abPort" value="${c.port||'80,443'}" placeholder="80,443 或 22,3389"></div>
     <div class="form-group" style="width:110px"><label>maxretry</label><input id="abMax" type="number" value="${c.maxretry||5}"></div>
     <div class="form-group" style="width:110px"><label>findtime</label><input id="abFind" type="number" value="${c.findtime||600}"></div>
     <div class="form-group" style="width:110px"><label>bantime</label><input id="abBan" type="number" value="${c.bantime||3600}"></div>
-    <div class="form-group" style="width:180px"><label>banaction</label><input id="abBanaction" value="${c.banaction||'iptables-allports'}"></div>
+    <div class="form-group" style="width:190px"><label>封禁方式</label><select id="abBanaction"><option value="iptables-allports" ${c.banaction==='iptables-allports'?'selected':''}>iptables-allports</option><option value="iptables-multiport" ${c.banaction==='iptables-multiport'?'selected':''}>iptables-multiport</option><option value="firewallcmd-ipset" ${c.banaction==='firewallcmd-ipset'?'selected':''}>firewallcmd-ipset</option><option value="ufw" ${c.banaction==='ufw'?'selected':''}>ufw</option></select></div>
     <div class="form-group" style="width:160px"><label>防火墙链</label><input id="abChain" value="${c.chain||'DOCKER-USER'}"></div>
   </div>
   <div class="form-group"><label>匹配状态码（逗号分隔）</label><input id="abCodes" value="${(c.status_codes||[]).join(',')}"></div>
@@ -255,7 +255,7 @@ async function page_autoban(){
     <div class="form-group" style="width:260px"><label>邮箱</label><input id="abCfEmail" value="${c.cloudflare_email||''}"></div>
     <div class="form-group" style="width:360px"><label>API Key / Token</label><input id="abCfKey" type="password" value="${c.cloudflare_api_key||''}"></div>
     <div class="form-group" style="width:220px"><label>备注</label><input id="abCfNote" value="${c.cloudflare_note||''}"></div>
-    <div class="form-group" style="width:220px"><label>真实 IP Header</label><input id="abRealIpHeader" value="${c.real_ip_header||'CF-Connecting-IP'}"></div>
+    <div class="form-group" style="width:220px"><label>真实 IP Header</label><select id="abRealIpHeader"><option value="CF-Connecting-IP" ${c.real_ip_header==='CF-Connecting-IP'?'selected':''}>CF-Connecting-IP</option><option value="X-Forwarded-For" ${c.real_ip_header==='X-Forwarded-For'?'selected':''}>X-Forwarded-For</option><option value="X-Real-IP" ${c.real_ip_header==='X-Real-IP'?'selected':''}>X-Real-IP</option><option value="True-Client-IP" ${c.real_ip_header==='True-Client-IP'?'selected':''}>True-Client-IP</option></select></div>
     <div><label><input type="checkbox" id="abRealIpRecursive" ${c.real_ip_recursive?'checked':''} style="width:auto;margin-right:6px">real_ip_recursive</label></div>
   </div>
   <div class="form-group"><label>Cloudflare IP 段（每行一个）</label><textarea id="abCfRanges" style="height:120px">${(c.cf_real_ip_ranges||[]).join('\n')}</textarea></div>

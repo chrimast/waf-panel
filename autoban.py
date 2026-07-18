@@ -21,7 +21,7 @@ def default_autoban_config():
         "enabled": False,
         "jail_name": "waf-panel-autoban",
         "filter_name": "waf-panel-autoban",
-        "port": "http,https",
+        "port": "80,443",
         "maxretry": 5,
         "findtime": 600,
         "bantime": 3600,
@@ -93,7 +93,9 @@ def normalize_autoban_config(cfg):
     if not base["status_codes"]:
         base["status_codes"] = [403, 429]
     base["logpaths"] = [str(x).strip() for x in _as_list(base.get("logpaths")) if str(x).strip()]
-    base["port"] = str(base.get("port") or "http,https").strip()
+    port = str(base.get("port") or "80,443").strip()
+    port_aliases = {"http": "80", "https": "443"}
+    base["port"] = ",".join(port_aliases.get(item.strip(), item.strip()) for item in port.split(",") if item.strip())
     base["ignore_ips"] = [str(x).strip() for x in _as_list(base.get("ignore_ips")) if str(x).strip()]
     base["cf_real_ip_ranges"] = [str(x).strip() for x in _as_list(base.get("cf_real_ip_ranges")) if str(x).strip()]
     base["jails"] = [_normalize_jail(x) for x in _as_list(base.get("jails")) if isinstance(x, dict)]
