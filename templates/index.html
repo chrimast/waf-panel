@@ -224,12 +224,29 @@ async function removeIP(ip){const r=await api('blacklist_remove',{method:'POST',
 async function toggleIPState(ip,state){const ns=state==='on'?'off':'on';const r=await api('blacklist_state',{method:'POST',body:{ip,type:_blType,state:ns}});if(r&&r.ok){toast('状态已更新');page_blacklist()}else toast('状态更新失败','error')}
 
 async function page_autoban(){
-  const d=await api('autoban_config');if(!d)return;const c=d.config||{};
+  const d=await api('autoban_config');if(!d)return;const c=d.config||{},p=d.panel||{};window._panelFail2ban=p;
   setMain(`<h1>🧱 自动封禁</h1>
+<div class="card" style="margin-bottom:16px">
+  <h3 style="color:#111827;font-size:15px;margin-bottom:12px">1Panel Fail2ban</h3>
+  <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:8px">
+    <div><label><input type="checkbox" id="pServiceEnabled" ${p.service_enabled?'checked':''} style="width:auto;margin-right:6px">启用 Fail2ban 服务</label></div>
+    <div><label><input type="checkbox" id="pSshEnabled" ${p.sshd_enabled?'checked':''} style="width:auto;margin-right:6px">启用 SSH Jail</label></div>
+    <div><span class="badge ${p.service_active?'badge-success':'badge-danger'}">${p.service_active?'服务运行中':'服务未运行'}</span></div>
+  </div>
+  <div class="row">
+    <div class="form-group" style="width:130px"><label>SSH 端口</label><input id="pSshPort" value="${p.sshd_port||'22'}"></div>
+    <div class="form-group" style="width:240px"><label>SSH 日志路径</label><input id="pSshLogpath" value="${p.sshd_logpath||'/var/log/auth.log'}"></div>
+    <div class="form-group" style="width:110px"><label>最大重试</label><input id="pSshMax" type="number" value="${p.sshd_maxretry||5}"></div>
+    <div class="form-group" style="width:110px"><label>检测周期</label><input id="pSshFind" type="number" value="${p.sshd_findtime||300}"></div>
+    <div class="form-group" style="width:110px"><label>封禁时长</label><input id="pSshBan" type="number" value="${p.sshd_bantime||600}"></div>
+    <div class="form-group" style="width:190px"><label>SSH 封禁方式</label><select id="pSshAction"><option value="iptables-allports" ${p.sshd_banaction==='iptables-allports'?'selected':''}>iptables-allports</option><option value="iptables-multiport" ${p.sshd_banaction==='iptables-multiport'?'selected':''}>iptables-multiport</option><option value="firewallcmd-ipset" ${p.sshd_banaction==='firewallcmd-ipset'?'selected':''}>firewallcmd-ipset</option><option value="ufw" ${p.sshd_banaction==='ufw'?'selected':''}>ufw</option></select></div>
+  </div>
+  <div class="form-group"><label>SSH 忽略 IP/CIDR</label><input id="pSshIgnore" value="${p.sshd_ignoreip||'127.0.0.1/8'}"></div>
+</div>
 <div class="card" style="margin-bottom:16px">
   <h3 style="color:#111827;font-size:15px;margin-bottom:12px">主 Jail</h3>
   <div class="cards" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:8px">
-    <div><label><input type="checkbox" id="abEnabled" ${c.enabled?'checked':''} style="width:auto;margin-right:6px">启用 fail2ban 联动</label></div>
+    <div><label><input type="checkbox" id="abEnabled" ${c.enabled?'checked':''} style="width:auto;margin-right:6px">启用 WAF 自动封禁</label></div>
     <div><label><input type="checkbox" id="abLocal" ${c.local_ban?'checked':''} style="width:auto;margin-right:6px">本机防火墙</label></div>
     <div><label><input type="checkbox" id="abWaf" ${c.waf_blacklist?'checked':''} style="width:auto;margin-right:6px">写入 WAF 黑名单</label></div>
     <div><label><input type="checkbox" id="abCf" ${c.cloudflare_ban?'checked':''} style="width:auto;margin-right:6px">Cloudflare 封禁</label></div>
@@ -270,8 +287,9 @@ async function page_autoban(){
   <pre id="abStatus">${escapeHtml(d.status?.output||'')}</pre>
 </div>`);
 }
+function panelFail2banPayload(){const p=window._panelFail2ban||{};return {...p,service_enabled:$('#pServiceEnabled').checked,sshd_enabled:$('#pSshEnabled').checked,sshd_port:$('#pSshPort').value.trim(),sshd_logpath:$('#pSshLogpath').value.trim(),sshd_ignoreip:$('#pSshIgnore').value.trim(),sshd_maxretry:+$('#pSshMax').value,sshd_findtime:+$('#pSshFind').value,sshd_bantime:+$('#pSshBan').value,sshd_banaction:$('#pSshAction').value}}
 function autobanPayload(){let jails=[];try{jails=JSON.parse($('#abJails').value||'[]')}catch(e){toast('Jails JSON 格式错误','error');throw e}return {enabled:$('#abEnabled').checked,local_ban:$('#abLocal').checked,banaction:$('#abBanaction').value.trim(),chain:$('#abChain').value.trim(),jail_name:$('#abJail').value.trim(),filter_name:$('#abFilter').value.trim(),port:$('#abPort').value.trim(),maxretry:+$('#abMax').value,findtime:+$('#abFind').value,bantime:+$('#abBan').value,status_codes:$('#abCodes').value.split(',').map(x=>x.trim()).filter(Boolean),logpaths:$('#abLogpaths').value.split('\n').map(x=>x.trim()).filter(Boolean),ignore_ips:$('#abIgnoreIps').value.split('\n').map(x=>x.trim()).filter(Boolean),ignore_regex:$('#abIgnoreRegex').value,waf_blacklist:$('#abWaf').checked,cloudflare_ban:$('#abCf').checked,cloudflare_email:$('#abCfEmail').value.trim(),cloudflare_api_key:$('#abCfKey').value.trim(),cloudflare_note:$('#abCfNote').value.trim(),cf_real_ip_enabled:$('#abRealIp').checked,real_ip_header:$('#abRealIpHeader').value.trim(),real_ip_recursive:$('#abRealIpRecursive').checked,cf_real_ip_ranges:$('#abCfRanges').value.split('\n').map(x=>x.trim()).filter(Boolean),jails}}
-async function saveAutoban(){let payload;try{payload=autobanPayload()}catch(e){return}const r=await api('autoban_config',{method:'POST',body:payload});if(r&&r.ok)toast('已保存自动封禁配置');else toast('保存失败','error')}
+async function saveAutoban(){let config;try{config=autobanPayload()}catch(e){return}const r=await api('autoban_config',{method:'POST',body:{config,panel:panelFail2banPayload()}});if(r&&r.ok){toast(r.message);page_autoban()}else toast(r?.detail||'保存失败','error')}
 async function restartAutoban(){const r=await api('autoban_restart',{method:'POST'});if(r&&r.ok){toast('fail2ban 已重启');refreshAutobanStatus()}else{toast('重启失败','error');if(r)$('#abStatus').textContent=r.output||''}}
 async function refreshAutobanStatus(){const r=await api('autoban_status');if(r)$('#abStatus').textContent=r.output||''}
 async function manualAutoban(op){const ip=$('#abManualIp').value.trim();if(!ip)return;const r=await api(op==='ban'?'autoban_ban':'autoban_unban',{method:'POST',body:{ip}});if(r&&r.ok){toast(op==='ban'?'已封禁':'已解封');refreshAutobanStatus()}else{toast('操作失败','error');if(r)$('#abStatus').textContent=r.output||''}}

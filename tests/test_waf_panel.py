@@ -103,6 +103,12 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertIn("toggleLogBan(${r.id},'${r.ip||''}','permanent'", self.template)
 
     def test_autoban_uses_port_and_preset_selects(self):
+        self.assertIn(">1Panel Fail2ban</h3>", self.template)
+        self.assertIn('id="pServiceEnabled"', self.template)
+        self.assertIn('id="pSshEnabled"', self.template)
+        self.assertIn('id="pSshPort"', self.template)
+        self.assertIn('id="pSshLogpath"', self.template)
+        self.assertIn("启用 WAF 自动封禁", self.template)
         self.assertIn(">主 Jail</h3>", self.template)
         self.assertIn("附加 Jails（JSON，可编辑）", self.template)
         self.assertIn('<label>监听端口</label><input id="abPort"', self.template)

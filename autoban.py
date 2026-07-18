@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime
@@ -245,6 +246,101 @@ def sync_managed_jails(existing, managed):
     return existing.rstrip() + "\n\n" + block + "\n"
 
 
+def _parse_ini_sections(text):
+    sections = {}
+    current = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith(";"):
+            continue
+        match = re.match(r"^\[([^]]+)\]$", line)
+        if match:
+            current = match.group(1)
+            sections.setdefault(current, {})
+        elif current and "=" in line:
+            key, value = line.split("=", 1)
+            sections[current][key.strip()] = value.strip()
+    return sections
+
+
+def _int_value(section, key, default):
+    try:
+        return int(section.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_1panel_fail2ban_config(text):
+    sections = _parse_ini_sections(text)
+    defaults = sections.get("DEFAULT", {})
+    sshd = sections.get("sshd", {})
+    return {
+        "default_bantime": _int_value(defaults, "bantime", 600),
+        "default_findtime": _int_value(defaults, "findtime", 300),
+        "default_maxretry": _int_value(defaults, "maxretry", 5),
+        "default_banaction": defaults.get("banaction", "iptables-allports"),
+        "default_action": defaults.get("action", "%(action_mwl)s"),
+        "sshd_enabled": sshd.get("enabled", "false").lower() in ("true", "1", "yes", "on"),
+        "sshd_port": sshd.get("port", "22"),
+        "sshd_logpath": sshd.get("logpath", "/var/log/auth.log"),
+        "sshd_ignoreip": sshd.get("ignoreip", "127.0.0.1/8"),
+        "sshd_maxretry": _int_value(sshd, "maxretry", _int_value(defaults, "maxretry", 5)),
+        "sshd_findtime": _int_value(sshd, "findtime", _int_value(defaults, "findtime", 300)),
+        "sshd_bantime": _int_value(sshd, "bantime", _int_value(defaults, "bantime", 600)),
+        "sshd_banaction": sshd.get("banaction", defaults.get("banaction", "iptables-allports")),
+        "sshd_action": sshd.get("action", defaults.get("action", "%(action_mwl)s")),
+    }
+
+
+def _render_1panel_sections(values):
+    return f"""#DEFAULT-START
+[DEFAULT]
+bantime = {int(values['default_bantime'])}
+findtime = {int(values['default_findtime'])}
+maxretry = {int(values['default_maxretry'])}
+banaction = {values['default_banaction']}
+action = {values['default_action']}
+#DEFAULT-END
+
+[sshd]
+ignoreip = {values['sshd_ignoreip']}
+enabled = {'true' if values['sshd_enabled'] else 'false'}
+filter = sshd
+port = {values['sshd_port']}
+maxretry = {int(values['sshd_maxretry'])}
+findtime = {int(values['sshd_findtime'])}
+bantime = {int(values['sshd_bantime'])}
+banaction = {values['sshd_banaction']}
+action = {values['sshd_action']}
+logpath = {values['sshd_logpath']}
+"""
+
+
+def _remove_section(text, section_name):
+    pattern = re.compile(rf"(?ms)^\[{re.escape(section_name)}\]\s*\n.*?(?=^\[[^]]+\]\s*$|^# WAF-PANEL-START|\Z)")
+    return pattern.sub("", text)
+
+
+def sync_1panel_fail2ban_config(existing, values):
+    default_pattern = re.compile(r"(?ms)^#DEFAULT-START\s*\n.*?^#DEFAULT-END\s*\n?")
+    remaining = default_pattern.sub("", existing)
+    remaining = _remove_section(remaining, "sshd")
+    return _render_1panel_sections(values).rstrip() + "\n\n" + remaining.strip() + "\n"
+
+
+def systemctl_state(state):
+    out = subprocess.run(["systemctl", "is-" + state, "fail2ban"], capture_output=True, text=True)
+    return out.returncode == 0
+
+
+def load_1panel_fail2ban_config(path=FAIL2BAN_JAIL_LOCAL_PATH):
+    path = Path(path)
+    config = parse_1panel_fail2ban_config(path.read_text() if path.exists() else "")
+    config["service_enabled"] = systemctl_state("enabled")
+    config["service_active"] = systemctl_state("active")
+    return config
+
+
 def generate_nginx_real_ip(cfg):
     if not cfg.get("cf_real_ip_enabled"):
         return ""
@@ -263,14 +359,15 @@ def _backup_file(path):
     return backup
 
 
-def apply_autoban_config(cfg):
-    cfg = save_autoban_config(cfg)
+def apply_fail2ban_config(autoban_cfg, panel_cfg):
+    cfg = save_autoban_config(autoban_cfg)
     files = generate_fail2ban_files(cfg)
     FAIL2BAN_FILTER_PATH.parent.mkdir(parents=True, exist_ok=True)
     FAIL2BAN_WAF_ACTION_PATH.parent.mkdir(parents=True, exist_ok=True)
     existing = FAIL2BAN_JAIL_LOCAL_PATH.read_text() if FAIL2BAN_JAIL_LOCAL_PATH.exists() else ""
-    _backup_file(FAIL2BAN_JAIL_LOCAL_PATH)
-    FAIL2BAN_JAIL_LOCAL_PATH.write_text(sync_managed_jails(existing, files["managed_jails"]))
+    backup = _backup_file(FAIL2BAN_JAIL_LOCAL_PATH)
+    merged = sync_1panel_fail2ban_config(existing, panel_cfg)
+    FAIL2BAN_JAIL_LOCAL_PATH.write_text(sync_managed_jails(merged, files["managed_jails"]))
     if FAIL2BAN_JAIL_PATH.exists():
         _backup_file(FAIL2BAN_JAIL_PATH)
         FAIL2BAN_JAIL_PATH.unlink()
@@ -281,7 +378,30 @@ def apply_autoban_config(cfg):
     NGINX_REAL_IP_SNIPPET_PATH.write_text(files["nginx_real_ip"])
     os.chmod(FAIL2BAN_CF_ACTION_PATH, 0o600)
     ensure_waf_blacklist_script()
+
+    check = subprocess.run(["fail2ban-client", "-t"], capture_output=True, text=True)
+    if check.returncode != 0:
+        if backup:
+            shutil.copy2(backup, FAIL2BAN_JAIL_LOCAL_PATH)
+        raise RuntimeError((check.stdout + check.stderr).strip() or "Fail2ban 配置校验失败")
+
+    service_enabled = bool(panel_cfg.get("service_enabled"))
+    subprocess.run(["systemctl", "enable" if service_enabled else "disable", "fail2ban"], capture_output=True, text=True)
+    service = subprocess.run(
+        ["systemctl", "restart" if service_enabled else "stop", "fail2ban"],
+        capture_output=True,
+        text=True,
+    )
+    if service.returncode != 0:
+        if backup:
+            shutil.copy2(backup, FAIL2BAN_JAIL_LOCAL_PATH)
+        subprocess.run(["systemctl", "restart", "fail2ban"], capture_output=True, text=True)
+        raise RuntimeError((service.stdout + service.stderr).strip() or "Fail2ban 服务更新失败")
     return cfg
+
+
+def apply_autoban_config(cfg):
+    return apply_fail2ban_config(cfg, load_1panel_fail2ban_config())
 
 
 def ensure_waf_blacklist_script():

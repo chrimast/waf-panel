@@ -9,8 +9,9 @@ import asyncio, os, sqlite3, json, subprocess, time
 
 from config import *
 from autoban import (
-    apply_autoban_config,
+    apply_fail2ban_config,
     fail2ban_status,
+    load_1panel_fail2ban_config,
     load_autoban_config,
     restart_fail2ban,
 )
@@ -648,14 +649,23 @@ async def page_save(request: Request):
 @app.get("/api/autoban_config")
 async def autoban_config_get():
     cfg = load_autoban_config()
-    status = fail2ban_status(cfg.get("jail_name"))
-    return {"config": cfg, "status": status}
+    panel = load_1panel_fail2ban_config()
+    status = fail2ban_status()
+    return {"config": cfg, "panel": panel, "status": status}
 
 @app.post("/api/autoban_config")
 async def autoban_config_set(request: Request):
     body = await request.json()
-    cfg = apply_autoban_config(body)
-    return {"ok": True, "message": "已保存自动封禁配置", "config": cfg}
+    try:
+        cfg = apply_fail2ban_config(body.get("config", body), body.get("panel", load_1panel_fail2ban_config()))
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc))
+    return {
+        "ok": True,
+        "message": "已同步 1Panel 与自动封禁配置",
+        "config": cfg,
+        "panel": load_1panel_fail2ban_config(),
+    }
 
 @app.post("/api/autoban_restart")
 async def autoban_restart():
