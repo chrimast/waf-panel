@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -44,6 +45,35 @@ class WafPanelRuleTests(unittest.TestCase):
     def test_log_ban_inserts_block_record_for_ip(self):
         self.assertIn("INSERT INTO block_ips", main._block_ip_sql())
 
+    def test_temporary_rule_has_source_expiry_and_block_record(self):
+        expires_at = int(time.time()) + 3600
+        rule = main._make_temporary_ip_rule("203.0.113.10", expires_at, block_id=42)
+
+        self.assertTrue(main._is_temporary_ip_rule(rule))
+        self.assertEqual(main._temporary_rule_expiry(rule), expires_at)
+        self.assertEqual(main._temporary_rule_block_id(rule), 42)
+        self.assertEqual(main._ip_rule_value(rule), "203.0.113.10")
+
+    def test_permanent_and_temporary_rules_are_independent(self):
+        permanent = main._make_ip_rule("203.0.113.10")
+        temporary = main._make_temporary_ip_rule("203.0.113.10", int(time.time()) + 3600)
+
+        states = main._ip_ban_states([permanent, temporary], "203.0.113.10")
+
+        self.assertEqual(states, {"temporary": True, "permanent": True})
+
+    def test_expired_temporary_rule_cleanup_preserves_permanent_rule(self):
+        permanent = main._make_ip_rule("203.0.113.10")
+        expired = main._make_temporary_ip_rule("203.0.113.10", 100)
+        active = main._make_temporary_ip_rule("203.0.113.11", 300)
+
+        kept, expired_ips = main._filter_expired_temporary_rules(
+            [permanent, expired, active], now=200
+        )
+
+        self.assertEqual([main._ip_rule_value(rule) for rule in kept], ["203.0.113.10", "203.0.113.11"])
+        self.assertEqual(expired_ips, {"203.0.113.10"})
+
 
 class WafPanelTemplateTests(unittest.TestCase):
     @classmethod
@@ -65,6 +95,12 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertIn('class="table-scroll attack-log-table"', self.template)
         self.assertIn(".attack-log-table table{min-width:", self.template)
         self.assertIn(".cell-clip", self.template)
+
+    def test_attack_logs_have_independent_temporary_and_permanent_controls(self):
+        self.assertIn("临时封禁", self.template)
+        self.assertIn("永久黑名单", self.template)
+        self.assertIn("toggleLogBan(${r.id},'${r.ip||''}','temporary'", self.template)
+        self.assertIn("toggleLogBan(${r.id},'${r.ip||''}','permanent'", self.template)
 
 
 if __name__ == "__main__":

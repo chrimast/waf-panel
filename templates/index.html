@@ -34,9 +34,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary)}
 .flex{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
 .section-title{font-size:15px;color:#111827;margin-bottom:14px}
 .table-scroll{width:100%;overflow-x:auto}
-.attack-log-table table{min-width:1060px;table-layout:fixed}
-.attack-log-table th:nth-child(1){width:160px}.attack-log-table th:nth-child(2){width:140px}.attack-log-table th:nth-child(3){width:150px}.attack-log-table th:nth-child(4){width:230px}.attack-log-table th:nth-child(5){width:220px}.attack-log-table th:nth-child(6){width:70px}.attack-log-table th:nth-child(7){width:70px}
-.attack-log-table th,.attack-log-table td{vertical-align:middle}.attack-log-table td:nth-child(1),.attack-log-table td:nth-child(2),.attack-log-table td:nth-child(6),.attack-log-table td:nth-child(7){white-space:nowrap}
+.attack-log-table table{min-width:1180px;table-layout:fixed}
+.attack-log-table th:nth-child(1){width:160px}.attack-log-table th:nth-child(2){width:140px}.attack-log-table th:nth-child(3){width:140px}.attack-log-table th:nth-child(4){width:220px}.attack-log-table th:nth-child(5){width:200px}.attack-log-table th:nth-child(6){width:110px}.attack-log-table th:nth-child(7){width:120px}.attack-log-table th:nth-child(8){width:70px}
+.attack-log-table th,.attack-log-table td{vertical-align:middle}.attack-log-table td:nth-child(1),.attack-log-table td:nth-child(2),.attack-log-table td:nth-child(6),.attack-log-table td:nth-child(7),.attack-log-table td:nth-child(8){white-space:nowrap}
 .cell-clip{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dashboard-map{height:420px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:24px;background:#eef2f7}
 .dashboard-recent{margin-bottom:24px}
@@ -135,8 +135,8 @@ async function loadLogs(p,search=''){
   _logTotal=d.total;_logPage=p;
   setMain(`<h1>📋 攻击日志</h1><div class="card">
 <div class="flex"><div class="row"><input placeholder="搜索 IP/规则/URI..." id="logSearch" style="width:260px" onkeyup="event.key==='Enter'&&loadLogs(1,this.value)"><button class="btn btn-primary" onclick="loadLogs(1,\$('#logSearch').value)">搜索</button></div><span style="color:var(--muted);font-size:13px">共 ${d.total} 条</span></div>
-<div class="table-scroll attack-log-table"><table><thead><tr><th>时间</th><th>IP</th><th>规则</th><th>URI</th><th>匹配值</th><th>封禁</th><th>操作</th></tr></thead>
-<tbody>${d.data.map(r=>`<tr><td>${r.localtime||''}</td><td><code>${r.ip||''}</code></td><td><span class="cell-clip"><span class="badge badge-warn">${r.rule||''}</span></span></td><td><span class="cell-clip" title="${escapeHtml(r.uri||'')}">${escapeHtml(r.uri||'')}</span></td><td><code class="cell-clip" title="${escapeHtml(r.match_val||'')}">${escapeHtml(r.match_val||'')}</code></td><td><span class="toggle ${r.is_banned?'on':'off'}" title="${r.is_banned?'点击解封':'点击封禁'}" onclick="toggleLogBan(${r.id},'${r.ip||''}',${!r.is_banned})"></span></td><td><button class="btn btn-primary btn-sm" onclick="showDetail(${r.id})">详情</button></td></tr>`).join('')||'<tr><td colspan="7" class="empty">暂无</td></tr>'}</tbody></table></div>
+<div class="table-scroll attack-log-table"><table><thead><tr><th>时间</th><th>IP</th><th>规则</th><th>URI</th><th>匹配值</th><th>临时封禁</th><th>永久黑名单</th><th>操作</th></tr></thead>
+<tbody>${d.data.map(r=>`<tr><td>${r.localtime||''}</td><td><code>${r.ip||''}</code></td><td><span class="cell-clip"><span class="badge badge-warn">${r.rule||''}</span></span></td><td><span class="cell-clip" title="${escapeHtml(r.uri||'')}">${escapeHtml(r.uri||'')}</span></td><td><code class="cell-clip" title="${escapeHtml(r.match_val||'')}">${escapeHtml(r.match_val||'')}</code></td><td><span class="toggle ${r.is_temporary_banned?'on':'off'}" title="${r.is_temporary_banned?'解除临时封禁':`临时封禁 ${d.bantime}s`}" onclick="toggleLogBan(${r.id},'${r.ip||''}','temporary',${!r.is_temporary_banned})"></span></td><td><span class="toggle ${r.is_permanent_banned?'on':'off'}" title="${r.is_permanent_banned?'移出永久黑名单':'加入永久黑名单'}" onclick="toggleLogBan(${r.id},'${r.ip||''}','permanent',${!r.is_permanent_banned})"></span></td><td><button class="btn btn-primary btn-sm" onclick="showDetail(${r.id})">详情</button></td></tr>`).join('')||'<tr><td colspan="8" class="empty">暂无</td></tr>'}</tbody></table></div>
 <div class="pagination" id="logPages">${renderPagination(d.total,20,p)}</div></div>`);
 }
 function logSearchValue(){return $('#logSearch')?.value||''}
@@ -154,9 +154,9 @@ function renderPagination(total,limit,page){
   h+=`<button ${page>=pages?'disabled':''} onclick="loadLogs(${page+1},logSearchValue())">›</button>`;
   return h;
 }
-async function toggleLogBan(logId,ip,banned){
+async function toggleLogBan(logId,ip,banType,banned){
   if(!ip)return toast('日志没有有效 IP','error');
-  const r=await api('log_ban',{method:'POST',body:{log_id:logId,ip,banned}});
+  const r=await api('log_ban',{method:'POST',body:{log_id:logId,ip,ban_type:banType,banned}});
   if(r&&r.ok){toast(r.message);loadLogs(_logPage,$('#logSearch')?.value||'')}else toast(r?.detail||'操作失败','error');
 }
 async function showDetail(id){

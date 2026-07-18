@@ -5,7 +5,7 @@
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-import os, sqlite3, json, subprocess
+import asyncio, os, sqlite3, json, subprocess, time
 
 from config import *
 from autoban import (
@@ -119,6 +119,7 @@ async def dashboard():
 # ── API: 攻击日志 ─────────────────────────────────
 @app.get("/api/logs")
 async def logs(page: int = 1, limit: int = 20, search: str = ""):
+    _cleanup_expired_temporary_bans()
     db = db_connect(["ip", "ru", "ur", "mv", "ho"])
     where = ""
     if search:
@@ -135,11 +136,14 @@ async def logs(page: int = 1, limit: int = 20, search: str = ""):
         {where} ORDER BY a.id DESC LIMIT {limit} OFFSET {(page-1)*limit}
     """).fetchall()
     data = [dict(r) for r in rows]
-    banned = {_ip_rule_value(rule) for rule in _read_blacklist_file("ipBlack")}
+    rules = _read_blacklist_file("ipBlack")
     for row in data:
-        row["is_banned"] = row.get("ip") in banned
+        states = _ip_ban_states(rules, row.get("ip"))
+        row["is_temporary_banned"] = states["temporary"]
+        row["is_permanent_banned"] = states["permanent"]
+        row["is_banned"] = states["temporary"] or states["permanent"]
     db.close()
-    return {"total": total, "page": page, "limit": limit, "pages": max(1, (total + limit - 1) // limit), "data": data}
+    return {"total": total, "page": page, "limit": limit, "pages": max(1, (total + limit - 1) // limit), "bantime": max(1, int(load_autoban_config().get("bantime", 3600))), "data": data}
 
 # ── API: 日志详情 ─────────────────────────────────
 @app.get("/api/log_detail")
@@ -186,6 +190,7 @@ async def log_detail(id: int):
 # ── API: 封锁记录 ─────────────────────────────────
 @app.get("/api/blocks")
 async def blocks(page: int = 1, limit: int = 20):
+    _cleanup_expired_temporary_bans()
     db = sqlite3.connect(f"file:{WAF_DB}/block_ips.db?mode=ro", uri=True)
     db.row_factory = sqlite3.Row
     db.execute(f"ATTACH DATABASE '{WAF_DB}/ips.db' AS ips")
@@ -198,12 +203,21 @@ async def blocks(page: int = 1, limit: int = 20):
 async def unblock(request: Request):
     body = await request.json()
     db = sqlite3.connect(f"{WAF_DB}/block_ips.db")
+    db.execute(f"ATTACH DATABASE '{WAF_DB}/ips.db' AS ips")
+    row = db.execute(
+        "SELECT i.value FROM block_ips b LEFT JOIN ips.ips i ON i.id=b.ip_id WHERE b.id=?",
+        (body["id"],),
+    ).fetchone()
     db.execute("DELETE FROM block_ips WHERE id=?", (body["id"],))
     db.commit(); db.close()
-    return {"ok": True, "message": "已解除封锁"}
+    changed = _remove_ip_ban_type(row[0], "temporary", block_id=body["id"]) if row and row[0] else False
+    result = nginx_reload() if changed else {}
+    return {**{"ok": True, "message": "已解除临时封禁"}, **result}
+
 
 def _block_ip_sql():
     return "INSERT INTO block_ips (ip_id, is_block, blocking_time, attack_log_id, create_date) VALUES (?, 1, ?, ?, datetime('now', 'localtime'))"
+
 
 @app.post("/api/log_ban")
 async def log_ban(request: Request):
@@ -211,32 +225,50 @@ async def log_ban(request: Request):
     ip = str(body.get("ip", "")).strip()
     log_id = int(body.get("log_id") or 0)
     banned = bool(body.get("banned", True))
+    ban_type = body.get("ban_type", "temporary")
     if not ip:
         raise HTTPException(400, "日志没有有效 IP")
+    if ban_type not in ("temporary", "permanent"):
+        raise HTTPException(400, "无效的封禁类型")
 
     rules = _read_blacklist_file("ipBlack")
-    rules = [rule for rule in rules if _ip_rule_value(rule) != ip]
+    is_temporary = ban_type == "temporary"
+    matching_temporary_block_ids = [
+        _temporary_rule_block_id(rule) for rule in rules
+        if _ip_rule_value(rule) == ip and _is_temporary_ip_rule(rule)
+    ]
+    matching_temporary_block_ids = [block_id for block_id in matching_temporary_block_ids if block_id]
+    rules = [
+        rule for rule in rules
+        if not (_ip_rule_value(rule) == ip and _is_temporary_ip_rule(rule) == is_temporary)
+    ]
+    bantime = max(1, int(load_autoban_config().get("bantime", 3600)))
+    temporary_block_id = None
+    if is_temporary:
+        db = sqlite3.connect(f"{WAF_DB}/ips.db")
+        row = db.execute("SELECT id FROM ips WHERE value=?", (ip,)).fetchone()
+        db.close()
+        if not row:
+            raise HTTPException(404, "IP 索引不存在")
+        ip_id = row[0]
+        db = sqlite3.connect(f"{WAF_DB}/block_ips.db")
+        temporary_block_id = matching_temporary_block_ids[0] if matching_temporary_block_ids else None
+        if matching_temporary_block_ids:
+            placeholders = ",".join("?" for _ in matching_temporary_block_ids)
+            db.execute(f"DELETE FROM block_ips WHERE id IN ({placeholders})", tuple(matching_temporary_block_ids))
+        if banned:
+            cursor = db.execute(_block_ip_sql(), (ip_id, bantime, log_id))
+            temporary_block_id = cursor.lastrowid
+        db.commit(); db.close()
+
     if banned:
-        rules.append(_make_ip_rule(ip))
+        rule = _make_temporary_ip_rule(ip, int(time.time()) + bantime, temporary_block_id) if is_temporary else _make_ip_rule(ip)
+        rules.append(rule)
     _write_blacklist_file("ipBlack", rules)
 
-    db = sqlite3.connect(f"{WAF_DB}/ips.db")
-    row = db.execute("SELECT id FROM ips WHERE value=?", (ip,)).fetchone()
-    db.close()
-    if not row:
-        raise HTTPException(404, "IP 索引不存在")
-    ip_id = row[0]
-
-    db = sqlite3.connect(f"{WAF_DB}/block_ips.db")
-    existing = db.execute("SELECT id FROM block_ips WHERE ip_id=? AND is_block=1", (ip_id,)).fetchone()
-    if banned and not existing:
-        db.execute(_block_ip_sql(), (ip_id, load_autoban_config().get("bantime", 3600), log_id))
-    elif not banned:
-        db.execute("DELETE FROM block_ips WHERE ip_id=?", (ip_id,))
-    db.commit()
-    db.close()
-    action = "封禁" if banned else "解封"
-    return {**{"ok": True, "message": f"已{action} {ip}"}, **nginx_reload()}
+    label = "临时封禁" if is_temporary else "永久黑名单"
+    action = "已启用" if banned else "已解除"
+    return {**{"ok": True, "message": f"{label}{action}: {ip}"}, **nginx_reload()}
 
 def _attack_map_sql():
     return """
@@ -385,11 +417,116 @@ def _ip_rule_value(rule):
     if rule["type"] == "ipArr": return f'{rule["ipStart"]}-{rule["ipEnd"]}'
     return ""
 
-def _set_ip_rule_state(name, ip, state):
+
+def _make_temporary_ip_rule(ip, expires_at, block_id=None):
+    rule = _make_ip_rule(ip)
+    rule["name"] = "waf-panel-temporary"
+    suffix = f" block_id={int(block_id)}" if block_id else ""
+    rule["description"] = f"temporary-ban expires_at={int(expires_at)}{suffix}"
+    return rule
+
+
+def _is_temporary_ip_rule(rule):
+    return isinstance(rule, dict) and rule.get("name") == "waf-panel-temporary"
+
+
+def _temporary_rule_expiry(rule):
+    if not _is_temporary_ip_rule(rule): return 0
+    marker = "expires_at="
+    description = rule.get("description", "")
+    try:
+        return int(description.split(marker, 1)[1].split()[0])
+    except (IndexError, ValueError):
+        return 0
+
+
+def _temporary_rule_block_id(rule):
+    if not _is_temporary_ip_rule(rule): return 0
+    marker = "block_id="
+    description = rule.get("description", "")
+    try:
+        return int(description.split(marker, 1)[1].split()[0])
+    except (IndexError, ValueError):
+        return 0
+
+
+def _ip_ban_states(rules, ip):
+    matching = [rule for rule in rules if _ip_rule_value(rule) == ip and rule.get("state", "on") != "off"]
+    return {
+        "temporary": any(_is_temporary_ip_rule(rule) for rule in matching),
+        "permanent": any(not _is_temporary_ip_rule(rule) for rule in matching),
+    }
+
+
+def _filter_expired_temporary_rules(rules, now=None):
+    now = int(time.time()) if now is None else int(now)
+    expired_ips = {
+        _ip_rule_value(rule) for rule in rules
+        if _is_temporary_ip_rule(rule) and _temporary_rule_expiry(rule) <= now
+    }
+    kept = [
+        rule for rule in rules
+        if not (_is_temporary_ip_rule(rule) and _temporary_rule_expiry(rule) <= now)
+    ]
+    return kept, expired_ips
+
+
+def _remove_ip_ban_type(ip, ban_type, block_id=None):
+    temporary = ban_type == "temporary"
+    rules = _read_blacklist_file("ipBlack")
+    kept = [
+        rule for rule in rules
+        if not (
+            _ip_rule_value(rule) == ip
+            and _is_temporary_ip_rule(rule) == temporary
+            and (not temporary or block_id is None or _temporary_rule_block_id(rule) == int(block_id))
+        )
+    ]
+    if len(kept) == len(rules): return False
+    _write_blacklist_file("ipBlack", kept)
+    return True
+
+
+def _cleanup_expired_temporary_bans():
+    rules = _read_blacklist_file("ipBlack")
+    expired_rules = [
+        rule for rule in rules
+        if _is_temporary_ip_rule(rule) and _temporary_rule_expiry(rule) <= int(time.time())
+    ]
+    kept, expired_ips = _filter_expired_temporary_rules(rules)
+    if not expired_ips: return False
+    _write_blacklist_file("ipBlack", kept)
+    block_ids = [_temporary_rule_block_id(rule) for rule in expired_rules]
+    block_ids = [block_id for block_id in block_ids if block_id]
+    if block_ids:
+        db = sqlite3.connect(f"{WAF_DB}/block_ips.db")
+        placeholders = ",".join("?" for _ in block_ids)
+        db.execute(f"DELETE FROM block_ips WHERE id IN ({placeholders})", tuple(block_ids))
+        db.commit(); db.close()
+    nginx_reload()
+    return True
+
+
+async def _temporary_ban_cleanup_loop():
+    while True:
+        await asyncio.sleep(30)
+        try:
+            _cleanup_expired_temporary_bans()
+        except Exception:
+            pass
+
+
+@app.on_event("startup")
+async def start_temporary_ban_cleanup():
+    asyncio.create_task(_temporary_ban_cleanup_loop())
+
+
+def _set_ip_rule_state(name, ip, state, temporary=None):
     data = _read_blacklist_file(name)
     changed = False
     for rule in data:
-        if _ip_rule_value(rule) == ip:
+        type_matches = temporary is None or _is_temporary_ip_rule(rule) == temporary
+        if _ip_rule_value(rule) == ip and type_matches:
             rule["state"] = "on" if state == "on" else "off"
             changed = True
     if changed:
@@ -398,8 +535,9 @@ def _set_ip_rule_state(name, ip, state):
 
 @app.get("/api/blacklist")
 async def blacklist_get():
+    black_rules = [rule for rule in _read_blacklist_file("ipBlack") if not _is_temporary_ip_rule(rule)]
     return {
-        "ipBlack": _read_blacklist_file("ipBlack"),
+        "ipBlack": black_rules,
         "ipWhite": _read_blacklist_file("ipWhite"),
     }
 
@@ -411,7 +549,7 @@ async def blacklist_add(request: Request):
     if not rule: raise HTTPException(400, "IP 不能为空")
     lst = "ipWhite" if body.get("type") == "white" else "ipBlack"
     data = _read_blacklist_file(lst)
-    values = {_ip_rule_value(x) for x in data}
+    values = {_ip_rule_value(x) for x in data if lst != "ipBlack" or not _is_temporary_ip_rule(x)}
     if _ip_rule_value(rule) not in values:
         data.append(rule); _write_blacklist_file(lst, data)
     return {**{"ok": True, "message": f"已添加 {ip}"}, **nginx_reload()}
@@ -421,7 +559,10 @@ async def blacklist_remove(request: Request):
     body = await request.json()
     ip = body["ip"].strip()
     lst = "ipWhite" if body.get("type") == "white" else "ipBlack"
-    data = [x for x in _read_blacklist_file(lst) if _ip_rule_value(x) != ip]
+    data = [
+        rule for rule in _read_blacklist_file(lst)
+        if not (_ip_rule_value(rule) == ip and (lst != "ipBlack" or not _is_temporary_ip_rule(rule)))
+    ]
     _write_blacklist_file(lst, data)
     return {**{"ok": True, "message": f"已移除 {ip}"}, **nginx_reload()}
 
@@ -431,7 +572,7 @@ async def blacklist_state(request: Request):
     ip = body["ip"].strip()
     state = "on" if body.get("state") == "on" else "off"
     lst = "ipWhite" if body.get("type") == "white" else "ipBlack"
-    if not _set_ip_rule_state(lst, ip, state):
+    if not _set_ip_rule_state(lst, ip, state, temporary=False if lst == "ipBlack" else None):
         raise HTTPException(404, "规则不存在")
     return {**{"ok": True, "message": "状态已更新"}, **nginx_reload()}
 
