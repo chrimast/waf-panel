@@ -134,8 +134,12 @@ async def logs(page: int = 1, limit: int = 20, search: str = ""):
         LEFT JOIN ho.hosts h ON h.id=a.host_id
         {where} ORDER BY a.id DESC LIMIT {limit} OFFSET {(page-1)*limit}
     """).fetchall()
+    data = [dict(r) for r in rows]
+    banned = {_ip_rule_value(rule) for rule in _read_blacklist_file("ipBlack")}
+    for row in data:
+        row["is_banned"] = row.get("ip") in banned
     db.close()
-    return {"total": total, "page": page, "limit": limit, "pages": max(1, (total + limit - 1) // limit), "data": [dict(r) for r in rows]}
+    return {"total": total, "page": page, "limit": limit, "pages": max(1, (total + limit - 1) // limit), "data": data}
 
 # ── API: 日志详情 ─────────────────────────────────
 @app.get("/api/log_detail")
@@ -197,6 +201,42 @@ async def unblock(request: Request):
     db.execute("DELETE FROM block_ips WHERE id=?", (body["id"],))
     db.commit(); db.close()
     return {"ok": True, "message": "已解除封锁"}
+
+def _block_ip_sql():
+    return "INSERT INTO block_ips (ip_id, is_block, blocking_time, attack_log_id, create_date) VALUES (?, 1, ?, ?, datetime('now', 'localtime'))"
+
+@app.post("/api/log_ban")
+async def log_ban(request: Request):
+    body = await request.json()
+    ip = str(body.get("ip", "")).strip()
+    log_id = int(body.get("log_id") or 0)
+    banned = bool(body.get("banned", True))
+    if not ip:
+        raise HTTPException(400, "日志没有有效 IP")
+
+    rules = _read_blacklist_file("ipBlack")
+    rules = [rule for rule in rules if _ip_rule_value(rule) != ip]
+    if banned:
+        rules.append(_make_ip_rule(ip))
+    _write_blacklist_file("ipBlack", rules)
+
+    db = sqlite3.connect(f"{WAF_DB}/ips.db")
+    row = db.execute("SELECT id FROM ips WHERE value=?", (ip,)).fetchone()
+    db.close()
+    if not row:
+        raise HTTPException(404, "IP 索引不存在")
+    ip_id = row[0]
+
+    db = sqlite3.connect(f"{WAF_DB}/block_ips.db")
+    existing = db.execute("SELECT id FROM block_ips WHERE ip_id=? AND is_block=1", (ip_id,)).fetchone()
+    if banned and not existing:
+        db.execute(_block_ip_sql(), (ip_id, load_autoban_config().get("bantime", 3600), log_id))
+    elif not banned:
+        db.execute("DELETE FROM block_ips WHERE ip_id=?", (ip_id,))
+    db.commit()
+    db.close()
+    action = "封禁" if banned else "解封"
+    return {**{"ok": True, "message": f"已{action} {ip}"}, **nginx_reload()}
 
 def _attack_map_sql():
     return """

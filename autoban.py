@@ -21,6 +21,7 @@ def default_autoban_config():
         "enabled": False,
         "jail_name": "waf-panel-autoban",
         "filter_name": "waf-panel-autoban",
+        "port": "http,https",
         "maxretry": 5,
         "findtime": 600,
         "bantime": 3600,
@@ -92,6 +93,7 @@ def normalize_autoban_config(cfg):
     if not base["status_codes"]:
         base["status_codes"] = [403, 429]
     base["logpaths"] = [str(x).strip() for x in _as_list(base.get("logpaths")) if str(x).strip()]
+    base["port"] = str(base.get("port") or "http,https").strip()
     base["ignore_ips"] = [str(x).strip() for x in _as_list(base.get("ignore_ips")) if str(x).strip()]
     base["cf_real_ip_ranges"] = [str(x).strip() for x in _as_list(base.get("cf_real_ip_ranges")) if str(x).strip()]
     base["jails"] = [_normalize_jail(x) for x in _as_list(base.get("jails")) if isinstance(x, dict)]
@@ -141,7 +143,7 @@ def generate_fail2ban_files(cfg):
     jail = f"""[{cfg['jail_name']}]
 enabled = {enabled}
 filter = {cfg['filter_name']}
-port = http,https
+port = {cfg['port']}
 logpath = {logpaths}
 maxretry = {cfg['maxretry']}
 findtime = {cfg['findtime']}
@@ -192,7 +194,7 @@ action = {action_text}
         parts.append(f"""[{jail['name']}]
 enabled = {'true' if jail['enabled'] else 'false'}
 filter = {jail['filter']}
-port = http,https
+port = {cfg['port']}
 logpath = {logpaths}
 maxretry = {jail['maxretry']}
 findtime = {jail['findtime']}
@@ -222,7 +224,8 @@ def apply_autoban_config(cfg):
     FAIL2BAN_FILTER_PATH.parent.mkdir(parents=True, exist_ok=True)
     FAIL2BAN_WAF_ACTION_PATH.parent.mkdir(parents=True, exist_ok=True)
     FAIL2BAN_JAIL_PATH.write_text(files["jail"])
-    FAIL2BAN_JAIL_LOCAL_PATH.write_text(files["jail_local"])
+    # jail.local belongs to 1Panel/system fail2ban configuration. Never overwrite it.
+    # Overwriting it removes the user's sshd port and logpath settings.
     FAIL2BAN_FILTER_PATH.write_text(files["filter"])
     FAIL2BAN_WAF_ACTION_PATH.write_text(files["waf_action"])
     FAIL2BAN_CF_ACTION_PATH.write_text(files["cloudflare_action"])

@@ -41,6 +41,31 @@ class WafPanelRuleTests(unittest.TestCase):
         self.assertIn("ip.ips", sql)
         self.assertIn("attack_logs", sql)
 
+    def test_log_ban_inserts_block_record_for_ip(self):
+        self.assertIn("INSERT INTO block_ips", main._block_ip_sql())
+
+
+class WafPanelTemplateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.template = Path("/opt/waf-panel/templates/index.html").read_text()
+
+    def test_dashboard_integrates_map_and_geo_controls(self):
+        self.assertIn('id="dashboardMap"', self.template)
+        self.assertIn('id="geoAction"', self.template)
+        self.assertIn('id="asnInput"', self.template)
+        self.assertIn("Promise.all([api('dashboard'),api('map'),api('geo_config')])", self.template)
+        self.assertLess(self.template.index('dashboard-recent'), self.template.index('id="geoAction"'))
+
+    def test_map_and_geo_are_removed_from_sidebar(self):
+        self.assertNotIn("nav('mapview')", self.template)
+        self.assertNotIn("nav('geo')", self.template)
+
+    def test_attack_log_table_has_stable_scroll_layout(self):
+        self.assertIn('class="table-scroll attack-log-table"', self.template)
+        self.assertIn(".attack-log-table table{min-width:", self.template)
+        self.assertIn(".cell-clip", self.template)
+
 
 if __name__ == "__main__":
     unittest.main()

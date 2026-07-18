@@ -19,6 +19,7 @@ class AutobanConfigTests(unittest.TestCase):
             "findtime": 900,
             "bantime": 7200,
             "logpaths": ["/tmp/access.log", "/tmp/site.log"],
+            "port": "http,https,2222",
             "status_codes": [403, 429, 444],
             "ignore_regex": "^.*static.*$",
             "ignore_ips": ["127.0.0.1/8", "192.0.2.1"],
@@ -39,6 +40,7 @@ class AutobanConfigTests(unittest.TestCase):
         self.assertIn("findtime = 900", files["jail"])
         self.assertIn("bantime = 7200", files["jail"])
         self.assertIn("/tmp/access.log", files["jail"])
+        self.assertIn("port = http,https,2222", files["jail"])
         self.assertIn("banaction = iptables-allports", files["jail"])
         self.assertIn("chain = DOCKER-USER", files["jail"])
         self.assertIn("iptables-allports", files["jail"])
@@ -73,6 +75,13 @@ class AutobanConfigTests(unittest.TestCase):
         self.assertIn("enabled = false", files["jail_local"])
         self.assertIn("filter = nginx-cc", files["jail_local"])
         self.assertIn("filter = apache-badbots", files["jail_local"])
+
+    def test_normalize_preserves_port_and_does_not_manage_ssh_jail(self):
+        cfg = default_autoban_config()
+        cfg["port"] = "http,https,22022"
+        files = generate_fail2ban_files(cfg)
+        self.assertIn("port = http,https,22022", files["jail"])
+        self.assertNotIn("[sshd]", files["jail_local"])
 
     def test_save_and_load_round_trip_preserves_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
