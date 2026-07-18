@@ -9,10 +9,8 @@ from autoban import (
     default_autoban_config,
     generate_fail2ban_files,
     load_autoban_config,
-    parse_1panel_fail2ban_config,
+    remove_managed_jails,
     save_autoban_config,
-    sync_1panel_fail2ban_config,
-    sync_managed_jails,
 )
 
 
@@ -113,7 +111,7 @@ class AutobanConfigTests(unittest.TestCase):
             self.assertEqual(loaded["cloudflare_email"], "ops@example.com")
             self.assertEqual(loaded["cloudflare_api_key"], "token-value")
 
-    def test_sync_managed_jails_preserves_1panel_and_replaces_panel_block(self):
+    def test_remove_managed_jails_preserves_1panel_config(self):
         original = """#DEFAULT-START
 [DEFAULT]
 bantime = 600
@@ -122,19 +120,20 @@ bantime = 600
 [sshd]
 enabled = true
 port = 2233
+
+# WAF-PANEL-START
+[waf-panel-autoban]
+enabled = false
+# WAF-PANEL-END
 """
-        first = "[waf-panel-autoban]\nenabled = false\n"
-        second = "[waf-panel-autoban]\nenabled = true\n[nginx-cc]\nenabled = true\n"
 
-        once = sync_managed_jails(original, first)
-        twice = sync_managed_jails(once, second)
+        cleaned = remove_managed_jails(original)
 
-        self.assertIn("[sshd]", twice)
-        self.assertIn("port = 2233", twice)
-        self.assertEqual(twice.count("# WAF-PANEL-START"), 1)
-        self.assertEqual(twice.count("[waf-panel-autoban]"), 1)
-        self.assertIn("[nginx-cc]", twice)
-        self.assertNotIn("enabled = false", twice)
+        self.assertIn("[DEFAULT]", cleaned)
+        self.assertIn("[sshd]", cleaned)
+        self.assertIn("port = 2233", cleaned)
+        self.assertNotIn("WAF-PANEL", cleaned)
+        self.assertNotIn("[waf-panel-autoban]", cleaned)
 
     def test_generated_managed_jails_include_main_and_json_jails(self):
         cfg = default_autoban_config()
@@ -149,77 +148,6 @@ port = 2233
         self.assertIn("[docker-nginx-cc]", managed)
         self.assertIn("filter = nginx-cc", managed)
         self.assertIn("bantime = 900", managed)
-
-    def test_parse_1panel_fail2ban_config_reads_default_and_sshd(self):
-        text = """#DEFAULT-START
-[DEFAULT]
-bantime = 600
-findtime = 300
-maxretry = 5
-banaction = iptables-allports
-action = %(action_mwl)s
-#DEFAULT-END
-
-[sshd]
-ignoreip = 127.0.0.1/8 192.0.2.1
-enabled = true
-filter = sshd
-port = 2233
-maxretry = 7
-findtime = 400
-bantime = 900
-banaction = ufw
-action = %(action_mwl)s
-logpath = /var/log/auth.log
-"""
-
-        cfg = parse_1panel_fail2ban_config(text)
-
-        self.assertTrue(cfg["sshd_enabled"])
-        self.assertEqual(cfg["sshd_port"], "2233")
-        self.assertEqual(cfg["sshd_logpath"], "/var/log/auth.log")
-        self.assertEqual(cfg["sshd_ignoreip"], "127.0.0.1/8 192.0.2.1")
-        self.assertEqual(cfg["sshd_maxretry"], 7)
-        self.assertEqual(cfg["sshd_findtime"], 400)
-        self.assertEqual(cfg["sshd_bantime"], 900)
-        self.assertEqual(cfg["sshd_banaction"], "ufw")
-        self.assertEqual(cfg["default_action"], "%(action_mwl)s")
-
-    def test_sync_1panel_fail2ban_config_preserves_unknown_sections(self):
-        original = """#DEFAULT-START
-[DEFAULT]
-bantime = 600
-findtime = 300
-maxretry = 5
-banaction = iptables-allports
-action = %(action_mwl)s
-#DEFAULT-END
-
-[sshd]
-enabled = true
-port = 2233
-logpath = /var/log/auth.log
-
-[recidive]
-enabled = true
-"""
-        values = {
-            "default_bantime": 1200, "default_findtime": 500, "default_maxretry": 6,
-            "default_banaction": "ufw", "default_action": "%(action_)s",
-            "sshd_enabled": False, "sshd_port": "2222", "sshd_logpath": "/tmp/auth.log",
-            "sshd_ignoreip": "127.0.0.1/8", "sshd_maxretry": 8,
-            "sshd_findtime": 700, "sshd_bantime": 1800, "sshd_banaction": "ufw",
-            "sshd_action": "%(action_)s",
-        }
-
-        updated = sync_1panel_fail2ban_config(original, values)
-
-        self.assertIn("[recidive]\nenabled = true", updated)
-        self.assertIn("bantime = 1200", updated)
-        self.assertIn("[sshd]", updated)
-        self.assertIn("enabled = false", updated)
-        self.assertIn("port = 2222", updated)
-        self.assertIn("logpath = /tmp/auth.log", updated)
 
 
 if __name__ == "__main__":
