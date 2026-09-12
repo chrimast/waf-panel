@@ -8,5 +8,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 ENV WAF_PANEL_HOME=/app \
     PYTHONUNBUFFERED=1
-EXPOSE 18081
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "18081"]
+EXPOSE 10087
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10087"]
