@@ -1,11 +1,15 @@
 import json
 import os
+import re
 import shutil
 import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
-PANEL_DIR = Path("/opt/waf-panel")
+PANEL_DIR = Path(os.environ.get("WAF_PANEL_HOME", Path(__file__).resolve().parent))
+WAF_BASE = Path(os.environ.get("WAF_BASE", "/opt/1panel/apps/openresty/openresty/1pwaf/data"))
+OPENRESTY_CONTAINER = os.environ.get("OR_CONTAINER", "1Panel-openresty-bGB2")
 AUTOBAN_CONFIG_PATH = PANEL_DIR / "autoban.json"
 FAIL2BAN_JAIL_PATH = Path("/etc/fail2ban/jail.d/waf-panel-autoban.local")
 FAIL2BAN_FILTER_PATH = Path("/etc/fail2ban/filter.d/waf-panel-autoban.conf")
@@ -16,8 +20,7 @@ FAIL2BAN_CF_ACTION_PATH = Path("/etc/fail2ban/action.d/waf-panel-cloudflare.conf
 FAIL2BAN_JAIL_LOCAL_PATH = Path("/etc/fail2ban/jail.local")
 NGINX_REAL_IP_SNIPPET_PATH = PANEL_DIR / "generated/cloudflare-real-ip.conf"
 WAF_BLACKLIST_SCRIPT = PANEL_DIR / "scripts/fail2ban_waf_blacklist.py"
-WAF_RULES_PATH = Path("/opt/1panel/apps/openresty/openresty/1pwaf/data/rules/ipBlack.json")
-OPENRESTY_CONTAINER = "1Panel-openresty-bGB2"
+WAF_RULES_PATH = WAF_BASE / "rules/ipBlack.json"
 
 
 def default_autoban_config():
@@ -50,7 +53,7 @@ def default_autoban_config():
         "waf_blacklist": True,
         "cloudflare_email": "",
         "cloudflare_api_key": "",
-        "cloudflare_note": "WAF Panel AutoBan",
+        "cloudflare_note": "WAF 管理面板自动封禁",
         "cf_real_ip_enabled": True,
         "real_ip_header": "CF-Connecting-IP",
         "real_ip_recursive": True,
@@ -74,9 +77,9 @@ def default_autoban_config():
     }
 
 
-def load_autoban_config(path=AUTOBAN_CONFIG_PATH):
+def load_autoban_config(path=None):
     cfg = default_autoban_config()
-    path = Path(path)
+    path = Path(path or AUTOBAN_CONFIG_PATH)
     if path.exists():
         with open(path) as f:
             loaded = json.load(f)
@@ -85,9 +88,9 @@ def load_autoban_config(path=AUTOBAN_CONFIG_PATH):
     return normalize_autoban_config(cfg)
 
 
-def save_autoban_config(cfg, path=AUTOBAN_CONFIG_PATH):
+def save_autoban_config(cfg, path=None):
     cfg = normalize_autoban_config(cfg)
-    path = Path(path)
+    path = Path(path or AUTOBAN_CONFIG_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
@@ -111,6 +114,22 @@ def normalize_autoban_config(cfg):
     base["cf_real_ip_ranges"] = [str(x).strip() for x in _as_list(base.get("cf_real_ip_ranges")) if str(x).strip()]
     base["custom_filters"] = [_normalize_custom_filter(x) for x in _as_list(base.get("custom_filters")) if isinstance(x, dict)]
     base["jails"] = [_normalize_jail(x) for x in _as_list(base.get("jails")) if isinstance(x, dict)]
+    filter_names = set()
+    for item in base["custom_filters"]:
+        if item["name"] in filter_names:
+            raise ValueError(f"重复 Filter 名称: {item['name']}")
+        filter_names.add(item["name"])
+        if item["failregex"] and "<HOST>" not in item["failregex"]:
+            raise ValueError(f"Filter 必须包含 <HOST>: {item['name']}")
+    jail_names = set()
+    for jail in base["jails"]:
+        if not jail["name"]:
+            continue
+        if jail["name"] == str(base.get("jail_name") or "").strip():
+            raise ValueError(f"附加 Jail 不能使用主 Jail 名称: {jail['name']}")
+        if jail["name"] in jail_names:
+            raise ValueError(f"重复 Jail 名称: {jail['name']}")
+        jail_names.add(jail["name"])
     for key in ("enabled", "local_ban", "cloudflare_ban", "waf_blacklist", "cf_real_ip_enabled", "real_ip_recursive"):
         base[key] = bool(base.get(key))
     base["banaction"] = str(base.get("banaction") or "iptables-allports").strip()
@@ -130,6 +149,7 @@ def _normalize_custom_filter(item):
 
 
 def _normalize_jail(jail):
+    actions = jail.get("actions") if isinstance(jail.get("actions"), dict) else {}
     return {
         "name": str(jail.get("name", "")).strip(),
         "enabled": bool(jail.get("enabled", True)),
@@ -137,7 +157,40 @@ def _normalize_jail(jail):
         "maxretry": int(jail.get("maxretry") or 5),
         "findtime": int(jail.get("findtime") or 600),
         "bantime": int(jail.get("bantime") or 3600),
+        "logpaths": [str(x).strip() for x in _as_list(jail.get("logpaths")) if str(x).strip()],
+        "port": str(jail.get("port") or "").strip(),
+        "ignore_ips": [str(x).strip() for x in _as_list(jail.get("ignore_ips")) if str(x).strip()],
+        "backend": str(jail.get("backend") or "auto").strip(),
+        "journalmatch": str(jail.get("journalmatch") or "").strip(),
+        "banaction": str(jail.get("banaction") or "").strip(),
+        "chain": str(jail.get("chain") or "").strip(),
+        "local_ban": jail.get("local_ban", actions.get("local_ban")),
+        "waf_blacklist": jail.get("waf_blacklist", actions.get("waf_blacklist")),
+        "cloudflare_ban": jail.get("cloudflare_ban", actions.get("cloudflare_ban")),
     }
+
+
+def test_filter_definition(item, sample):
+    item = _normalize_custom_filter(item)
+    if not item["name"] or not item["failregex"]:
+        raise ValueError("Filter 名称和 failregex 不能为空")
+    with tempfile.NamedTemporaryFile("w", suffix=".conf", encoding="utf-8") as definition:
+        definition.write("[Definition]\nfailregex = " + item["failregex"] + "\nignoreregex = " + item["ignoreregex"] + "\n")
+        definition.flush()
+        result = subprocess.run(
+            ["fail2ban-regex", "-", definition.name],
+            input=sample,
+            capture_output=True,
+            text=True,
+        )
+    output = (result.stdout + result.stderr).strip()
+    match = re.search(r"total number of match is\s+(\d+)", output, re.I)
+    hosts = sorted(set(re.findall(r"(?<![\w:])(?:\d{1,3}\.){3}\d{1,3}(?![\w:])", output)))
+    return {"ok": result.returncode == 0, "matches": int(match.group(1)) if match else 0, "hosts": hosts, "output": output}
+
+
+# pytest must not collect this imported runtime helper as a test function.
+test_filter_definition.__test__ = False
 
 
 def _as_list(value):
@@ -172,8 +225,34 @@ def missing_jail_filters(cfg, installed=None):
     available = set(installed if installed is not None else installed_filter_names())
     available.update(generate_custom_filter_files(cfg))
     available.add(cfg["filter_name"])
-    required = {jail["filter"] for jail in cfg["jails"] if jail["enabled"] and jail["filter"]}
+    required = {jail["filter"] for jail in cfg["jails"] if jail["filter"]}
     return sorted(required - available)
+
+
+def validate_autoban_config(cfg, installed=None, panel_owned=None):
+    cfg = normalize_autoban_config(cfg)
+    installed = set(installed if installed is not None else installed_filter_names())
+    panel_owned = set(panel_owned or ())
+    custom_names = {item["name"] for item in cfg["custom_filters"]}
+    empty = sorted(item["name"] or "未命名" for item in cfg["custom_filters"] if not item["failregex"])
+    if empty:
+        raise ValueError("Filter failregex 不能为空: " + ", ".join(empty))
+    missing_journal = sorted(jail["name"] for jail in cfg["jails"] if jail["backend"] == "systemd" and not jail["journalmatch"])
+    if missing_journal:
+        raise ValueError("systemd Jail 必须设置 journalmatch: " + ", ".join(missing_journal))
+    collisions = sorted(custom_names & (installed - panel_owned))
+    if collisions:
+        raise ValueError("自建 Filter 与系统 Filter 重名: " + ", ".join(collisions))
+    missing = missing_jail_filters(cfg, installed=installed)
+    if missing:
+        raise ValueError("缺少 Fail2ban Filters: " + ", ".join(missing))
+    return cfg
+
+
+def removed_custom_filter_names(previous_cfg, cfg):
+    previous = set(generate_custom_filter_files(previous_cfg))
+    current = set(generate_custom_filter_files(cfg))
+    return previous - current
 
 
 def generate_fail2ban_files(cfg):
@@ -230,6 +309,46 @@ cftoken = {cfg['cloudflare_api_key']}
     return {"jail": jail, "jail_local": jail_local, "managed_jails": jail + "\n" + additional_jails, "filter": filter_conf, "waf_action": waf_action, "cloudflare_action": cf_action, "nginx_real_ip": nginx_real_ip}
 
 
+def _jail_action_text(cfg, jail):
+    actions = []
+    banaction = jail.get("banaction") or cfg["banaction"]
+    chain = jail.get("chain") or cfg["chain"]
+    if jail.get("local_ban") if jail.get("local_ban") is not None else cfg["local_ban"]:
+        actions.append(f"{banaction}[chain={chain}]")
+    if jail.get("cloudflare_ban") if jail.get("cloudflare_ban") is not None else cfg["cloudflare_ban"]:
+        actions.append("waf-panel-cloudflare")
+    if jail.get("waf_blacklist") if jail.get("waf_blacklist") is not None else cfg["waf_blacklist"]:
+        actions.append("1panel-waf-blacklist")
+    return "\n         ".join(actions)
+
+
+def _additional_jail_section(cfg, jail):
+    logpaths = jail["logpaths"] or cfg["logpaths"]
+    ignore_ips = jail["ignore_ips"] or cfg["ignore_ips"]
+    port = jail["port"] or cfg["port"]
+    action_text = _jail_action_text(cfg, jail)
+    logpath_text = "\n          ".join(logpaths)
+    ignoreip_text = " ".join(ignore_ips)
+    backend = jail.get("backend") or "auto"
+    banaction = jail.get("banaction") or cfg["banaction"]
+    chain = jail.get("chain") or cfg["chain"]
+    source = f"journalmatch = {jail['journalmatch']}" if backend == "systemd" and jail.get("journalmatch") else f"logpath = {logpath_text}"
+    return f"""[{jail['name']}]
+enabled = {'true' if cfg['enabled'] and jail['enabled'] else 'false'}
+filter = {jail['filter']}
+port = {port}
+backend = {backend}
+{source}
+maxretry = {jail['maxretry']}
+findtime = {jail['findtime']}
+bantime = {jail['bantime']}
+banaction = {banaction}
+chain = {chain}
+ignoreip = {ignoreip_text}
+action = {action_text}
+"""
+
+
 def generate_jail_local(cfg, action_text, logpaths, ignoreip):
     parts = [f"""# Managed by waf-panel
 [DEFAULT]
@@ -243,41 +362,16 @@ action = {action_text}
     for jail in cfg["jails"]:
         if not jail.get("name"):
             continue
-        parts.append(f"""[{jail['name']}]
-enabled = {'true' if cfg['enabled'] and jail['enabled'] else 'false'}
-filter = {jail['filter']}
-port = {cfg['port']}
-logpath = {logpaths}
-maxretry = {jail['maxretry']}
-findtime = {jail['findtime']}
-bantime = {jail['bantime']}
-banaction = {cfg['banaction']}
-chain = {cfg['chain']}
-ignoreip = {ignoreip}
-action = {action_text}
-""")
+        parts.append(_additional_jail_section(cfg, jail))
     return "\n".join(parts)
 
 
 def generate_additional_jails(cfg, action_text, logpaths, ignoreip):
-    parts = []
-    for jail in cfg["jails"]:
-        if not jail.get("name"):
-            continue
-        parts.append(f"""[{jail['name']}]
-enabled = {'true' if cfg['enabled'] and jail['enabled'] else 'false'}
-filter = {jail['filter']}
-port = {cfg['port']}
-logpath = {logpaths}
-maxretry = {jail['maxretry']}
-findtime = {jail['findtime']}
-bantime = {jail['bantime']}
-banaction = {cfg['banaction']}
-chain = {cfg['chain']}
-ignoreip = {ignoreip}
-action = {action_text}
-""")
-    return "\n".join(parts)
+    return "\n".join(
+        _additional_jail_section(cfg, jail)
+        for jail in cfg["jails"]
+        if jail.get("name")
+    )
 
 
 def remove_managed_jails(existing):
@@ -310,45 +404,68 @@ def _backup_file(path):
 def apply_autoban_config(cfg):
     try:
         cfg = normalize_autoban_config(cfg)
+        previous_cfg = load_autoban_config()
     except (TypeError, ValueError) as exc:
         raise RuntimeError(str(exc))
-    missing = missing_jail_filters(cfg)
-    if missing:
-        raise RuntimeError("缺少 Fail2ban Filters: " + ", ".join(missing))
+    removed_filters = removed_custom_filter_names(previous_cfg, cfg)
+    installed = installed_filter_names() - removed_filters
+    try:
+        cfg = validate_autoban_config(
+            cfg,
+            installed=installed,
+            panel_owned={item["name"] for item in previous_cfg["custom_filters"]},
+        )
+    except ValueError as exc:
+        raise RuntimeError(str(exc))
 
     files = generate_fail2ban_files(cfg)
     custom_filters = generate_custom_filter_files(cfg)
     FAIL2BAN_JAIL_PATH.parent.mkdir(parents=True, exist_ok=True)
     FAIL2BAN_FILTER_PATH.parent.mkdir(parents=True, exist_ok=True)
     FAIL2BAN_WAF_ACTION_PATH.parent.mkdir(parents=True, exist_ok=True)
+    managed_paths = (
+        FAIL2BAN_JAIL_PATH, FAIL2BAN_FILTER_PATH, FAIL2BAN_WAF_ACTION_PATH,
+        FAIL2BAN_CF_ACTION_PATH, NGINX_REAL_IP_SNIPPET_PATH, WAF_BLACKLIST_SCRIPT,
+    )
+    snapshots = {path: path.read_bytes() if path.exists() else None for path in managed_paths}
     jail_backup = _backup_file(FAIL2BAN_JAIL_PATH)
     filter_backups = {}
-    for name, content in custom_filters.items():
+    for name in custom_filters.keys() | removed_filters:
         path = FAIL2BAN_FILTER_PATH.parent / f"{name}.conf"
         filter_backups[path] = _backup_file(path)
-        path.write_text(content)
-    FAIL2BAN_JAIL_PATH.write_text(files["managed_jails"].strip() + "\n")
-    FAIL2BAN_FILTER_PATH.write_text(files["filter"])
-    FAIL2BAN_WAF_ACTION_PATH.write_text(files["waf_action"])
-    FAIL2BAN_CF_ACTION_PATH.write_text(files["cloudflare_action"])
-    NGINX_REAL_IP_SNIPPET_PATH.parent.mkdir(parents=True, exist_ok=True)
-    NGINX_REAL_IP_SNIPPET_PATH.write_text(files["nginx_real_ip"])
-    os.chmod(FAIL2BAN_CF_ACTION_PATH, 0o600)
-    ensure_waf_blacklist_script()
+    try:
+        for name, content in custom_filters.items():
+            (FAIL2BAN_FILTER_PATH.parent / f"{name}.conf").write_text(content)
+        for name in removed_filters:
+            (FAIL2BAN_FILTER_PATH.parent / f"{name}.conf").unlink(missing_ok=True)
+        FAIL2BAN_JAIL_PATH.write_text(files["managed_jails"].strip() + "\n")
+        FAIL2BAN_FILTER_PATH.write_text(files["filter"])
+        FAIL2BAN_WAF_ACTION_PATH.write_text(files["waf_action"])
+        FAIL2BAN_CF_ACTION_PATH.write_text(files["cloudflare_action"])
+        NGINX_REAL_IP_SNIPPET_PATH.parent.mkdir(parents=True, exist_ok=True)
+        NGINX_REAL_IP_SNIPPET_PATH.write_text(files["nginx_real_ip"])
+        os.chmod(FAIL2BAN_CF_ACTION_PATH, 0o600)
+        ensure_waf_blacklist_script()
 
-    check = subprocess.run(["fail2ban-client", "-t"], capture_output=True, text=True)
-    if check.returncode != 0:
-        if jail_backup:
-            shutil.copy2(jail_backup, FAIL2BAN_JAIL_PATH)
-        else:
-            FAIL2BAN_JAIL_PATH.unlink(missing_ok=True)
+        check = subprocess.run(["fail2ban-client", "-t"], capture_output=True, text=True)
+        if check.returncode != 0:
+            raise RuntimeError((check.stdout + check.stderr).strip() or "Fail2ban 配置校验失败")
+        return save_autoban_config(cfg)
+    except Exception as exc:
+        for path, content in snapshots.items():
+            if content is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
         for path, backup in filter_backups.items():
             if backup:
                 shutil.copy2(backup, path)
             else:
                 path.unlink(missing_ok=True)
-        raise RuntimeError((check.stdout + check.stderr).strip() or "Fail2ban 配置校验失败")
-    return save_autoban_config(cfg)
+        if isinstance(exc, RuntimeError):
+            raise
+        raise RuntimeError(str(exc)) from exc
 
 
 def migrate_autoban_to_dedicated_jail():
@@ -380,6 +497,23 @@ def fail2ban_status(jail_name=None):
     return {"ok": out.returncode == 0, "output": (out.stdout + out.stderr).strip()}
 
 
+def fail2ban_jail_status(jail_name):
+    result = fail2ban_status(jail_name)
+    output = result["output"]
+    def number(label):
+        match = re.search(rf"{re.escape(label)}:\s*(\d+)", output, re.I)
+        return int(match.group(1)) if match else 0
+    banned = re.search(r"Banned IP list:\s*(.*)", output, re.I)
+    return {
+        **result,
+        "name": jail_name,
+        "running": result["ok"],
+        "currently_banned": number("Currently banned"),
+        "total_banned": number("Total banned"),
+        "banned_ips": banned.group(1).split() if banned and banned.group(1).strip() else [],
+    }
+
+
 WAF_BLACKLIST_SCRIPT_CONTENT = r'''#!/usr/bin/env python3
 import json
 import os
@@ -387,8 +521,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-WAF_RULES_PATH = Path("/opt/1panel/apps/openresty/openresty/1pwaf/data/rules/ipBlack.json")
-RELOAD_CMD = ["docker", "exec", "1Panel-openresty-bGB2", "/usr/local/openresty/nginx/sbin/nginx", "-s", "reload"]
+WAF_RULES_PATH = Path(os.environ.get("WAF_BASE", "/opt/1panel/apps/openresty/openresty/1pwaf/data")) / "rules/ipBlack.json"
+RELOAD_CMD = ["docker", "exec", os.environ.get("OR_CONTAINER", "1Panel-openresty-bGB2"), "/usr/local/openresty/nginx/sbin/nginx", "-s", "reload"]
 
 def load_rules():
     if not WAF_RULES_PATH.exists():

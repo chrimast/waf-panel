@@ -1,11 +1,13 @@
 [Unit]
-Description=1Panel WAF Management Panel (FastAPI)
+Description=1Panel WAF Management Panel
 After=network.target docker.service
+Wants=docker.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 18081
 WorkingDirectory=/opt/waf-panel
+EnvironmentFile=/opt/waf-panel/.env
+ExecStart=/opt/waf-panel/venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 10087
 Restart=always
 RestartSec=5
 

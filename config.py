@@ -4,17 +4,21 @@
 """
 import os, json, sqlite3, subprocess, hashlib, hmac, base64, time
 
-WAF_BASE = "/opt/1panel/apps/openresty/openresty/1pwaf/data"
+PANEL_HOME = os.environ.get("WAF_PANEL_HOME", os.path.dirname(os.path.abspath(__file__)))
+WAF_BASE = os.environ.get("WAF_BASE", "/opt/1panel/apps/openresty/openresty/1pwaf/data")
 WAF_CONF = os.path.join(WAF_BASE, "conf")
 WAF_RULES = os.path.join(WAF_BASE, "rules")
 WAF_DB = os.path.join(WAF_BASE, "db/waf")
 WAF_GLOBAL_DB = os.path.join(WAF_BASE, "db/global")
 WAF_DEFAULT = os.path.join(WAF_BASE, "default")
-OR_CONTAINER = "1Panel-openresty-bGB2"
-NGINX_RELOAD_CMD = f"docker exec {OR_CONTAINER} /usr/local/openresty/nginx/sbin/nginx -s reload"
+OR_CONTAINER = os.environ.get("OR_CONTAINER", "1Panel-openresty-bGB2")
+NGINX_RELOAD_CMD = [
+    "docker", "exec", OR_CONTAINER,
+    "/usr/local/openresty/nginx/sbin/nginx", "-s", "reload",
+]
 
-PANEL_PASSWORD = "admin123"
-SESSION_TTL = 86400
+PANEL_PASSWORD = os.environ.get("WAF_PANEL_PASSWORD", "***")
+SESSION_TTL = int(os.environ.get("WAF_PANEL_SESSION_TTL", "86400"))
 
 RULE_NAMES = {
     "waf": "WAF总开关", "xss": "XSS防护", "sql": "SQL注入防护",
@@ -44,8 +48,11 @@ def waf_write_json(path, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def nginx_reload():
-    out = subprocess.run(NGINX_RELOAD_CMD, shell=True, capture_output=True, text=True)
-    return {"reloaded": True, "output": out.stdout.strip() + out.stderr.strip()}
+    out = subprocess.run(NGINX_RELOAD_CMD, capture_output=True, text=True)
+    return {
+        "reloaded": out.returncode == 0,
+        "output": (out.stdout + out.stderr).strip(),
+    }
 
 def db_connect(dbs=None, readonly=True):
     uri = f"file:{WAF_DB}/attack_logs.db?mode={'ro' if readonly else 'rw'}"

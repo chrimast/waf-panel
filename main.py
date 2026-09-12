@@ -10,14 +10,20 @@ import asyncio, os, sqlite3, json, subprocess, time
 from config import *
 from autoban import (
     apply_autoban_config,
+    fail2ban_jail_status,
     fail2ban_status,
+    generate_custom_filter_files,
+    generate_fail2ban_files,
+    installed_filter_names,
     load_autoban_config,
     missing_jail_filters,
     restart_fail2ban,
+    test_filter_definition,
+    validate_autoban_config,
 )
 
-app = FastAPI(title="WAF Panel")
-app.mount("/static", StaticFiles(directory="/opt/waf-panel/static"), name="static")
+app = FastAPI(title="WAF 管理面板")
+app.mount("/static", StaticFiles(directory=os.path.join(PANEL_HOME, "static")), name="static")
 
 # ── 认证中间件 ────────────────────────────────────
 def get_token(request: Request) -> str:
@@ -58,7 +64,7 @@ async def login_page(request: Request):
         return HTMLResponse(LOGIN_HTML.replace("{MSG}", '<p style="color:#e03131;text-align:center">密码错误</p>'))
     return HTMLResponse(LOGIN_HTML.replace("{MSG}", ""))
 
-LOGIN_HTML = """<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>WAF Panel · 登录</title>
+LOGIN_HTML = """<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>WAF 管理面板 · 登录</title>
 <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#1a1b1e;display:flex;align-items:center;justify-content:center;min-height:100vh}
 form{background:#25262b;padding:40px;border-radius:12px;border:1px solid #373a40;width:360px}
 h1{color:#fff;font-size:20px;text-align:center;margin-bottom:24px}
@@ -73,7 +79,9 @@ button:hover{opacity:.85}
 # ── 主页面 ────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def index():
-    return open("/opt/waf-panel/templates/index.html").read()
+    path = os.path.join(PANEL_HOME, "templates", "index.html")
+    with open(path) as template:
+        return template.read()
 
 # ── API: 仪表盘 ───────────────────────────────────
 @app.get("/api/dashboard")
@@ -660,6 +668,73 @@ async def autoban_config_set(request: Request):
     except RuntimeError as exc:
         raise HTTPException(400, str(exc))
     return {"ok": True, "message": "已保存自动封禁配置", "config": cfg}
+
+@app.get("/api/autoban/catalog")
+@app.get("/api/autoban_catalog")
+async def autoban_catalog():
+    cfg = load_autoban_config()
+    owned = {item["name"]: item for item in cfg["custom_filters"]}
+    references = {}
+    for jail in cfg["jails"]:
+        references.setdefault(jail["filter"], []).append(jail["name"])
+    names = sorted(set(installed_filter_names()) | set(owned))
+    return {
+        "filters": [
+            {
+                "name": name,
+                "owner": "panel" if name in owned else "system",
+                "used_by": sorted(references.get(name, [])),
+                **({"definition": owned[name]} if name in owned else {}),
+            }
+            for name in names
+        ]
+    }
+
+
+@app.post("/api/autoban/validate")
+@app.post("/api/autoban_validate")
+async def autoban_validate(request: Request):
+    body = await request.json()
+    previous = load_autoban_config()
+    try:
+        cfg = validate_autoban_config(body, panel_owned={item["name"] for item in previous["custom_filters"]})
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True, "config": cfg, "message": "草稿校验通过"}
+
+
+@app.post("/api/autoban/preview")
+@app.post("/api/autoban_preview")
+async def autoban_preview(request: Request):
+    body = await request.json()
+    previous = load_autoban_config()
+    try:
+        cfg = validate_autoban_config(body, panel_owned={item["name"] for item in previous["custom_filters"]})
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, str(exc))
+    files = generate_fail2ban_files(cfg)
+    return {"ok": True, "jail_local": files["managed_jails"], "filters": generate_custom_filter_files(cfg)}
+
+
+@app.get("/api/autoban/jails/{name}/status")
+@app.get("/api/autoban_jails/{name}/status")
+async def autoban_jail_status(name: str):
+    cfg = load_autoban_config()
+    managed = {cfg["jail_name"]} | {jail["name"] for jail in cfg["jails"]}
+    if name not in managed:
+        raise HTTPException(404, "Jail 不受本面板管理")
+    return fail2ban_jail_status(name)
+
+
+@app.post("/api/autoban/filters/test")
+@app.post("/api/autoban_filter_test")
+async def autoban_filter_test(request: Request):
+    body = await request.json()
+    try:
+        return test_filter_definition(body.get("filter") or {}, str(body.get("sample") or ""))
+    except (OSError, TypeError, ValueError) as exc:
+        raise HTTPException(400, str(exc))
+
 
 @app.post("/api/autoban_restart")
 async def autoban_restart():
