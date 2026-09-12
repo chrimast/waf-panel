@@ -1,0 +1,10 @@
+__pycache__/
+.pytest_cache/
+.git/
+.env
+.env.*
+autoban.json
+backups/
+generated/
+venv/
+*.pyc

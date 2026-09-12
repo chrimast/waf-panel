@@ -11,13 +11,14 @@ PANEL_DIR = Path(os.environ.get("WAF_PANEL_HOME", Path(__file__).resolve().paren
 WAF_BASE = Path(os.environ.get("WAF_BASE", "/opt/1panel/apps/openresty/openresty/1pwaf/data"))
 OPENRESTY_CONTAINER = os.environ.get("OR_CONTAINER", "1Panel-openresty-bGB2")
 AUTOBAN_CONFIG_PATH = PANEL_DIR / "autoban.json"
-FAIL2BAN_JAIL_PATH = Path("/etc/fail2ban/jail.d/waf-panel-autoban.local")
-FAIL2BAN_FILTER_PATH = Path("/etc/fail2ban/filter.d/waf-panel-autoban.conf")
+FAIL2BAN_ROOT = Path(os.environ.get("FAIL2BAN_ROOT", "/etc/fail2ban"))
+FAIL2BAN_JAIL_PATH = FAIL2BAN_ROOT / "jail.d/waf-panel-autoban.local"
+FAIL2BAN_FILTER_PATH = FAIL2BAN_ROOT / "filter.d/waf-panel-autoban.conf"
 MANAGED_JAILS_START = "# WAF-PANEL-START"
 MANAGED_JAILS_END = "# WAF-PANEL-END"
-FAIL2BAN_WAF_ACTION_PATH = Path("/etc/fail2ban/action.d/1panel-waf-blacklist.conf")
-FAIL2BAN_CF_ACTION_PATH = Path("/etc/fail2ban/action.d/waf-panel-cloudflare.conf")
-FAIL2BAN_JAIL_LOCAL_PATH = Path("/etc/fail2ban/jail.local")
+FAIL2BAN_WAF_ACTION_PATH = FAIL2BAN_ROOT / "action.d/1panel-waf-blacklist.conf"
+FAIL2BAN_CF_ACTION_PATH = FAIL2BAN_ROOT / "action.d/waf-panel-cloudflare.conf"
+FAIL2BAN_JAIL_LOCAL_PATH = FAIL2BAN_ROOT / "jail.local"
 NGINX_REAL_IP_SNIPPET_PATH = PANEL_DIR / "generated/cloudflare-real-ip.conf"
 WAF_BLACKLIST_SCRIPT = PANEL_DIR / "scripts/fail2ban_waf_blacklist.py"
 WAF_RULES_PATH = WAF_BASE / "rules/ipBlack.json"
@@ -447,7 +448,7 @@ def apply_autoban_config(cfg):
         os.chmod(FAIL2BAN_CF_ACTION_PATH, 0o600)
         ensure_waf_blacklist_script()
 
-        check = subprocess.run(["fail2ban-client", "-t"], capture_output=True, text=True)
+        check = _fail2ban_command(["-t"])
         if check.returncode != 0:
             raise RuntimeError((check.stdout + check.stderr).strip() or "Fail2ban 配置校验失败")
         return save_autoban_config(cfg)
@@ -486,8 +487,15 @@ def ensure_waf_blacklist_script():
     os.chmod(WAF_BLACKLIST_SCRIPT, 0o755)
 
 
+def _fail2ban_command(args):
+    return subprocess.run(["fail2ban-client", *args], capture_output=True, text=True)
+
+
 def restart_fail2ban():
-    out = subprocess.run(["systemctl", "restart", "fail2ban"], capture_output=True, text=True)
+    if os.environ.get("WAF_PANEL_DOCKER") == "1":
+        out = _fail2ban_command(["reload"])
+    else:
+        out = subprocess.run(["systemctl", "restart", "fail2ban"], capture_output=True, text=True)
     return {"ok": out.returncode == 0, "output": (out.stdout + out.stderr).strip()}
 
 

@@ -1,0 +1,32 @@
+services:
+  waf-panel:
+    build: .
+    image: waf-panel:latest
+    container_name: waf-panel
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env.docker
+    environment:
+      WAF_PANEL_HOME: /app
+      WAF_BASE: ${WAF_BASE:-/opt/1panel/apps/openresty/openresty/1pwaf/data}
+      OR_CONTAINER: ${OR_CONTAINER:-1Panel-openresty-bGB2}
+      FAIL2BAN_SOCKET: /var/run/fail2ban/fail2ban.sock
+      WAF_PANEL_DOCKER: "1"
+      FAIL2BAN_ROOT: /etc/fail2ban
+    volumes:
+      - ${WAF_BASE:-/opt/1panel/apps/openresty/openresty/1pwaf/data}:${WAF_BASE:-/opt/1panel/apps/openresty/openresty/1pwaf/data}:rw
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/fail2ban:/var/run/fail2ban
+      - /etc/fail2ban:/etc/fail2ban:rw
+      - /opt/1panel/apps/openresty/openresty/log:/opt/1panel/apps/openresty/openresty/log:ro
+      - /opt/1panel/www/sites:/opt/1panel/www/sites:ro
+      - /var/log:/var/log:ro
+      - waf-panel-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18081/login', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  waf-panel-data:

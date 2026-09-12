@@ -65,6 +65,19 @@ class InstallerContractTests(unittest.TestCase):
         self.assertNotIn("docker-compose.yml", self.source)
         self.assertNotIn("nginx.conf", self.source)
 
+
+    def test_docker_contract(self):
+        compose = (PROJECT_DIR / "docker-compose.yml").read_text()
+        dockerfile = (PROJECT_DIR / "Dockerfile").read_text()
+        self.assertIn("/var/run/docker.sock:/var/run/docker.sock", compose)
+        self.assertIn("/var/run/fail2ban:/var/run/fail2ban", compose)
+        self.assertIn("/etc/fail2ban:/etc/fail2ban:rw", compose)
+        self.assertIn("WAF_PANEL_DOCKER", compose)
+        self.assertIn("python:3.11-slim", dockerfile)
+        source = (PROJECT_DIR / "autoban.py").read_text()
+        self.assertIn("FAIL2BAN_ROOT", source)
+        self.assertIn("fail2ban-client", source)
+
     def test_installer_creates_isolated_runtime(self):
         self.assertIn("python3 -m venv", self.source)
         self.assertIn("EnvironmentFile=", self.source)

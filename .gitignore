@@ -9,3 +9,4 @@ autoban.json
 scripts/
 generated/
 backups/
+.env.docker
