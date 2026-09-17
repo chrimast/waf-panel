@@ -1,3 +1,4 @@
+import secrets
 """
 1Panel WAF 管理面板 - 配置
 零侵入: 只读写 WAF 数据文件，不修改 1Panel 自身
@@ -75,18 +76,24 @@ alias_map = {
 def auth_secret():
     return hashlib.sha256(f"{PANEL_PASSWORD}|waf-panel".encode()).hexdigest()
 
-def auth_make_token(ip: str):
+def auth_make_token(_ip: str = ""):
+    # Do not bind sessions to client IP across mobile/desktop view switches.
     exp = int(time.time()) + SESSION_TTL
-    payload = f"{exp}|{ip}"
+    nonce = secrets.token_urlsafe(18)
+    payload = f"{exp}|{nonce}"
     sig = hmac.new(auth_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
-    return base64.b64encode(f"{payload}|{sig}".encode()).decode()
+    return base64.urlsafe_b64encode(f"{payload}|{sig}".encode()).decode()
 
 def auth_verify_token(token: str) -> bool:
     try:
-        decoded = base64.b64decode(token).decode()
-        exp_str, ip, sig = decoded.split("|")
+        decoded = base64.urlsafe_b64decode(token.encode()).decode()
+        parts = decoded.split("|")
+        if len(parts) == 2:
+            exp_str, sig = parts; payload = exp_str
+        elif len(parts) == 3:
+            exp_str, ip, sig = parts; payload = f"{exp_str}|{ip}"
+        else: return False
         if time.time() > int(exp_str): return False
-        payload = f"{exp_str}|{ip}"
         expected = hmac.new(auth_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, sig)
-    except: return False
+    except Exception: return False

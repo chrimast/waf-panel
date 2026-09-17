@@ -59,7 +59,7 @@ async def login_page(request: Request):
         if password == PANEL_PASSWORD:
             token = auth_make_token(request.client.host)
             resp = RedirectResponse("/", 302)
-            resp.set_cookie("waf_token", token, max_age=SESSION_TTL, httponly=True)
+            resp.set_cookie("waf_token", token, max_age=SESSION_TTL, httponly=True, path="/", samesite="lax")
             return resp
         return HTMLResponse(LOGIN_HTML.replace("{MSG}", '<p style="color:#e03131;text-align:center">密码错误</p>'))
     return HTMLResponse(LOGIN_HTML.replace("{MSG}", ""))
