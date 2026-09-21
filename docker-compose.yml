@@ -21,6 +21,7 @@ services:
       - /etc/fail2ban:/etc/fail2ban:rw
       - /opt/1panel/apps/openresty/openresty/log:/opt/1panel/apps/openresty/openresty/log:ro
       - /opt/1panel/www/sites:/opt/1panel/www/sites:ro
+      - /opt/1panel/apps/openresty/openresty/www/sites:/opt/1panel/apps/openresty/openresty/www/sites:ro
       - /var/log:/var/log:ro
       - waf-panel-data:/app/data
     healthcheck:

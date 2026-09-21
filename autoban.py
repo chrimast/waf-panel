@@ -22,6 +22,40 @@ FAIL2BAN_JAIL_LOCAL_PATH = FAIL2BAN_ROOT / "jail.local"
 NGINX_REAL_IP_SNIPPET_PATH = PANEL_DIR / "generated/cloudflare-real-ip.conf"
 WAF_BLACKLIST_SCRIPT = PANEL_DIR / "scripts/fail2ban_waf_blacklist.py"
 WAF_RULES_PATH = WAF_BASE / "rules/ipBlack.json"
+PANEL_ROOT = Path(os.environ.get("PANEL_ROOT", "/opt/1panel"))
+V1_OPENRESTY_LOG = "/opt/1panel/apps/openresty/openresty/log/*.log"
+V1_SITE_LOG = "/opt/1panel/apps/openresty/openresty/www/sites/*/log/*.log"
+V2_SITE_LOG = "/opt/1panel/www/sites/*/log/*.log"
+
+
+def _openresty_dir(panel_root=None, waf_base=None):
+    waf = Path(waf_base or WAF_BASE)
+    if waf.name == "data" and waf.parent.name == "1pwaf":
+        return waf.parent.parent
+    return Path(panel_root or PANEL_ROOT) / "apps/openresty/openresty"
+
+
+def _log_glob_available(glob_path):
+    text = str(glob_path)
+    if "/www/sites/" in text:
+        return Path(text.split("/sites/")[0] + "/sites").is_dir()
+    if text.endswith("/log/*.log"):
+        log_dir = Path(text[: -len("/*.log")])
+        return log_dir.is_dir() or log_dir.parent.is_dir()
+    return Path(text).parent.is_dir()
+
+
+def detect_default_logpaths(panel_root=None, waf_base=None):
+    """Pick 1Panel v1 and/or v2 site logs that actually exist; keep both if neither is present."""
+    root = Path(panel_root or PANEL_ROOT)
+    or_dir = _openresty_dir(root, waf_base)
+    candidates = [
+        str(or_dir / "log" / "*.log"),
+        str(or_dir / "www" / "sites" / "*" / "log" / "*.log"),
+        str(root / "www" / "sites" / "*" / "log" / "*.log"),
+    ]
+    found = [path for path in candidates if _log_glob_available(path)]
+    return found or [V1_OPENRESTY_LOG, V1_SITE_LOG, V2_SITE_LOG]
 
 
 def default_autoban_config():
@@ -34,10 +68,7 @@ def default_autoban_config():
         "findtime": 600,
         "bantime": 3600,
         "status_codes": [403, 429],
-        "logpaths": [
-            "/opt/1panel/apps/openresty/openresty/log/*.log",
-            "/opt/1panel/www/sites/*/log/*.log",
-        ],
+        "logpaths": detect_default_logpaths(),
         "ignore_regex": r"^.*(/(?:robots\.txt|favicon\.ico|.*\.(?:jpg|png|gif|jpeg|svg|webp|bmp|tiff|css|js|woff|woff2|eot|ttf|otf)))",
         "ignore_ips": ["127.0.0.1/8"],
         "custom_filters": [
@@ -69,11 +100,11 @@ def default_autoban_config():
         ],
         "jails": [
             {"name": "docker-nginx-cc", "enabled": True, "filter": "nginx-cc", "maxretry": 5, "findtime": 600, "bantime": 3600},
-            {"name": "docker-nginx-badbots", "enabled": True, "filter": "apache-badbots", "maxretry": 2, "findtime": 600, "bantime": 3600},
-            {"name": "docker-nginx-botsearch", "enabled": True, "filter": "nginx-botsearch", "maxretry": 5, "findtime": 600, "bantime": 3600},
-            {"name": "docker-nginx-http-auth", "enabled": True, "filter": "nginx-http-auth", "maxretry": 5, "findtime": 600, "bantime": 3600},
-            {"name": "docker-nginx-limit-req", "enabled": True, "filter": "nginx-limit-req", "maxretry": 5, "findtime": 600, "bantime": 3600},
-            {"name": "docker-php-url-fopen", "enabled": True, "filter": "php-url-fopen", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "docker-nginx-badbots", "enabled": False, "filter": "apache-badbots", "maxretry": 2, "findtime": 600, "bantime": 3600},
+            {"name": "docker-nginx-botsearch", "enabled": False, "filter": "nginx-botsearch", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "docker-nginx-http-auth", "enabled": False, "filter": "nginx-http-auth", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "docker-nginx-limit-req", "enabled": False, "filter": "nginx-limit-req", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "docker-php-url-fopen", "enabled": False, "filter": "php-url-fopen", "maxretry": 5, "findtime": 600, "bantime": 3600},
         ],
     }
 
@@ -108,6 +139,8 @@ def normalize_autoban_config(cfg):
     if not base["status_codes"]:
         base["status_codes"] = [403, 429]
     base["logpaths"] = [str(x).strip() for x in _as_list(base.get("logpaths")) if str(x).strip()]
+    if not base["logpaths"]:
+        base["logpaths"] = detect_default_logpaths()
     port = str(base.get("port") or "80,443").strip()
     port_aliases = {"http": "80", "https": "443"}
     base["port"] = ",".join(port_aliases.get(item.strip(), item.strip()) for item in port.split(",") if item.strip())

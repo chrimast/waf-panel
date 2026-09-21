@@ -266,3 +266,4 @@ if [[ $GENERATED_PASSWORD -eq 1 ]]; then
 else
     printf '登录密码: 已保留或使用指定密码\n'
 fi
+printf '\n接下来: 浏览器打开上面的地址 → 仪表盘看 WAF 是否运行 → 自动封禁点「开启保护」。\n'

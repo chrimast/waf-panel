@@ -16,6 +16,7 @@ from autoban import (
     generate_fail2ban_files,
     installed_filter_names,
     load_autoban_config,
+    detect_default_logpaths,
     missing_jail_filters,
     restart_fail2ban,
     test_filter_definition,
@@ -658,7 +659,7 @@ async def page_save(request: Request):
 async def autoban_config_get():
     cfg = load_autoban_config()
     status = fail2ban_status(cfg.get("jail_name"))
-    return {"config": cfg, "missing_filters": missing_jail_filters(cfg), "status": status}
+    return {"config": cfg, "missing_filters": missing_jail_filters(cfg), "status": status, "detected_logpaths": detect_default_logpaths()}
 
 @app.post("/api/autoban_config")
 async def autoban_config_set(request: Request):

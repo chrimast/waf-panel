@@ -10,6 +10,7 @@ import autoban
 from autoban import (
     apply_autoban_config,
     default_autoban_config,
+    detect_default_logpaths,
     generate_custom_filter_files,
     generate_fail2ban_files,
     load_autoban_config,
@@ -338,10 +339,12 @@ enabled = false
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(f"original-{index}")
             save_autoban_config(default_autoban_config(), root / "autoban.json")
+            cfg = default_autoban_config()
+            cfg["jails"] = [{"name": "docker-nginx-cc", "enabled": True, "filter": "nginx-cc"}]
 
             with self._apply_paths(root), patch.object(autoban.subprocess, "run", return_value=Mock(returncode=1, stdout="", stderr="invalid")):
                 with self.assertRaisesRegex(RuntimeError, "invalid"):
-                    apply_autoban_config(default_autoban_config())
+                    apply_autoban_config(cfg)
 
             self.assertEqual([path.read_text() for path in paths], [f"original-{i}" for i in range(len(paths))])
 
@@ -360,10 +363,12 @@ enabled = false
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(f"original-{index}")
             save_autoban_config(default_autoban_config(), root / "autoban.json")
+            cfg = default_autoban_config()
+            cfg["jails"] = [{"name": "docker-nginx-cc", "enabled": True, "filter": "nginx-cc"}]
 
             with self._apply_paths(root), patch.object(autoban, "ensure_waf_blacklist_script", side_effect=OSError("disk error")):
                 with self.assertRaisesRegex(RuntimeError, "disk error"):
-                    apply_autoban_config(default_autoban_config())
+                    apply_autoban_config(cfg)
 
             self.assertEqual([path.read_text() for path in paths], [f"original-{i}" for i in range(len(paths))])
 
@@ -410,6 +415,28 @@ enabled = false
         self.assertIn("[docker-nginx-cc]", managed)
         self.assertIn("filter = nginx-cc", managed)
         self.assertIn("bantime = 900", managed)
+
+    def test_detect_default_logpaths_v1_and_v2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            v1_sites = root / "apps/openresty/openresty/www/sites"
+            v1_log = root / "apps/openresty/openresty/log"
+            v2_sites = root / "www/sites"
+            v1_sites.mkdir(parents=True)
+            v1_log.mkdir(parents=True)
+            paths = detect_default_logpaths(panel_root=root, waf_base=root / "apps/openresty/openresty/1pwaf/data")
+            self.assertIn(str(v1_log / "*.log"), paths)
+            self.assertIn(str(v1_sites / "*" / "log" / "*.log"), paths)
+            self.assertNotIn(str(v2_sites / "*" / "log" / "*.log"), paths)
+
+            v2_sites.mkdir(parents=True)
+            paths = detect_default_logpaths(panel_root=root, waf_base=root / "apps/openresty/openresty/1pwaf/data")
+            self.assertIn(str(v2_sites / "*" / "log" / "*.log"), paths)
+
+    def test_empty_logpaths_fill_detected_defaults(self):
+        cfg = normalize_autoban_config({"logpaths": []})
+        self.assertTrue(cfg["logpaths"])
+        self.assertTrue(any("openresty/log" in p or "www/sites" in p for p in cfg["logpaths"]))
 
 
 if __name__ == "__main__":

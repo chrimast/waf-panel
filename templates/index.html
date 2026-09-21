@@ -109,17 +109,38 @@ body{min-height:100vh;overflow-x:hidden;align-items:stretch}
   .dashboard-stats{grid-template-columns:repeat(2,minmax(0,1fr)) !important;gap:8px}
   .dashboard-stats .card{min-width:0}
 }
+
+.autoban-switch{align-items:center}
+.autoban-switch input,
+input#abEnabled{
+  min-height:0;
+  height:auto;
+  width:auto;
+  margin:0;
+  padding:0;
+  border:0;
+  box-shadow:none;
+  background:transparent;
+  align-self:center;
+}
+
+.autoban-simple{display:grid;gap:14px}
+.autoban-simple-status{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.autoban-presets{display:flex;gap:8px;flex-wrap:wrap}
+.autoban-presets .btn{min-width:72px}
+#abAdvanced{margin-top:12px}
+#abAdvanced>summary{cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 0}
+@media(max-width:600px){.autoban-simple-status{display:block}.autoban-presets .btn{flex:1}}
 </style>
 </head>
 <body>
 <nav class="sidebar">
-  <h2>🛡️ WAF 管理面板</h2>
-  <a class="nav-link active" onclick="nav('dashboard')">📊 仪表盘</a>
-  <a class="nav-link" onclick="nav('logs')">📋 攻击日志</a>
-  <a class="nav-link" onclick="nav('blocks')">🚫 封锁记录</a>
-  <a class="nav-link" onclick="nav('blacklist')">🔒 IP黑/白名单</a>
-  <a class="nav-link" onclick="nav('autoban')">🧱 自动封禁</a>
-  <a class="nav-link" onclick="nav('pages')">📄 拦截页面</a>
+  <h2>WAF 管理面板</h2>
+  <a class="nav-link active" onclick="nav('dashboard')">仪表盘</a>
+  <a class="nav-link" onclick="nav('logs')">攻击日志</a>
+  <a class="nav-link" onclick="nav('bans')">封禁管理</a>
+  <a class="nav-link" onclick="nav('autoban')">自动封禁</a>
+  <a class="nav-link" onclick="nav('pages')">拦截页面</a>
 </nav>
 <main class="main" id="main"></main>
 <div id="toast"></div>
@@ -128,7 +149,7 @@ body{min-height:100vh;overflow-x:hidden;align-items:stretch}
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s),api=async(action,opt={})=>{const u='/api/'+action+(opt.params?'?'+new URLSearchParams(opt.params):'');const r=await fetch(u,{method:opt.method||'GET',headers:{'Content-Type':'application/json'},body:opt.body?JSON.stringify(opt.body):void 0});if(r.status===401){const j=await r.json();if(j.need_login){location.href='/login';return{}}}return r.json()};
 function toast(msg,type='success'){const t=document.createElement('div');t.className='toast toast-'+type;t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),3000)}
 function setMain(h){$('#main').innerHTML=h}
-function nav(page){$$('.nav-link').forEach(a=>a.classList.remove('active'));const l=$(`.nav-link:nth-child(${{dashboard:2,logs:3,blocks:4,blacklist:5,autoban:6,pages:7}[page]})`);if(l)l.classList.add('active');window['page_'+page]()}
+function nav(page){$$('.nav-link').forEach(a=>a.classList.remove('active'));const l=$(`.nav-link:nth-child(${{dashboard:2,logs:3,bans:4,autoban:5,pages:6}[page]})`);if(l)l.classList.add('active');window['page_'+page]()}
 function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function ipRuleValue(rule){if(typeof rule==='string')return rule;if(!rule||typeof rule!=='object')return '';if(rule.type==='ipv4')return rule.ipv4||'';if(rule.type==='ipv6')return rule.ipv6||'';if(rule.type==='ipGroup')return rule.ipGroup||'';if(rule.type==='ipArr')return `${rule.ipStart||''}-${rule.ipEnd||''}`;return rule.ipv4||rule.ipv6||rule.ipGroup||''}
 function ipRuleState(rule){if(!rule||typeof rule==='string')return 'on';return rule.state==='off'?'off':'on'}
@@ -138,7 +159,7 @@ async function page_dashboard(){
   _geoState=geo.state;
   const s=d.waf_state==='on'?'运行中':'已关闭',sc=d.waf_state==='on'?'badge-success':'badge-danger';
   const t=d.waf_stat&&d.waf_stat[0]||{};
-  setMain(`<h1>📊 仪表盘</h1>
+  setMain(`<h1>仪表盘</h1>
 <div class="dashboard-top"><div id="dashboardMap" class="dashboard-map"></div><div class="dashboard-side"><div class="dashboard-stats">
   <div class="card"><div class="label">WAF 状态</div><div class="value"><span class="badge ${sc}">${s}</span></div><div class="sub">模式: ${d.waf_mode||'?'}</div></div>
   <div class="card"><div class="label">今日请求</div><div class="value">${t.req_count||0}</div><div class="sub">4xx: ${t.count4xx||0} | 5xx: ${t.count5xx||0}</div></div>
@@ -170,7 +191,7 @@ async function page_logs(){await loadLogs(1)}
 async function loadLogs(p,search=''){
   _logPage=p;const d=await api('logs',{params:{page:p,limit:20,search}});if(!d)return;
   _logTotal=d.total;_logPage=p;
-  setMain(`<h1>📋 攻击日志</h1><div class="card">
+  setMain(`<h1>攻击日志</h1><div class="card">
 <div class="flex"><div class="row"><input placeholder="搜索 IP/规则/URI..." id="logSearch" style="width:260px" onkeyup="event.key==='Enter'&&loadLogs(1,this.value)"><button class="btn btn-primary" onclick="loadLogs(1,\$('#logSearch').value)">搜索</button></div><span style="color:var(--muted);font-size:13px">共 ${d.total} 条</span></div>
 <div class="table-scroll attack-log-table"><table><thead><tr><th>时间</th><th>IP</th><th>规则</th><th>URI</th><th>匹配值</th><th>临时封禁</th><th>永久黑名单</th><th>操作</th></tr></thead>
 <tbody>${d.data.map(r=>`<tr><td>${r.localtime||''}</td><td><code>${r.ip||''}</code></td><td><span class="cell-clip"><span class="badge badge-warn">${r.rule||''}</span></span></td><td><span class="cell-clip" title="${escapeHtml(r.uri||'')}">${escapeHtml(r.uri||'')}</span></td><td><code class="cell-clip" title="${escapeHtml(r.match_val||'')}">${escapeHtml(r.match_val||'')}</code></td><td><span class="toggle ${r.is_temporary_banned?'on':'off'}" title="${r.is_temporary_banned?'解除临时封禁':`临时封禁 ${d.bantime}s`}" onclick="toggleLogBan(${r.id},'${r.ip||''}','temporary',${!r.is_temporary_banned})"></span></td><td><span class="toggle ${r.is_permanent_banned?'on':'off'}" title="${r.is_permanent_banned?'移出永久黑名单':'加入永久黑名单'}" onclick="toggleLogBan(${r.id},'${r.ip||''}','permanent',${!r.is_permanent_banned})"></span></td><td><button class="btn btn-primary btn-sm" onclick="showDetail(${r.id})">详情</button></td></tr>`).join('')||'<tr><td colspan="8" class="empty">暂无</td></tr>'}</tbody></table></div>
@@ -212,12 +233,21 @@ async function showDetail(id){
 }
 
 
-async function page_blocks(){
-  const d=await api('blocks',{params:{page:1,limit:30}});if(!d)return;
-  setMain(`<h1>🚫 封锁记录</h1><div class="card"><table><thead><tr><th>封锁时间</th><th>IP</th><th>时长</th><th>状态</th><th>操作</th></tr></thead>
-<tbody>${d.data.map(r=>`<tr><td>${r.create_date||''}</td><td><code>${r.ip||''}</code></td><td>${r.blocking_time?r.blocking_time+'s':'永久'}</td><td>${r.is_block?'<span class="badge badge-danger">封锁中</span>':'<span class="badge badge-success">已解除</span>'}</td><td><button class="btn btn-danger btn-sm" onclick="unblock(${r.id})">解封</button></td></tr>`).join('')||'<tr><td colspan="5" class="empty">暂无</td></tr>'}</tbody></table></div>`);
+async function page_bans(){
+  const [blocks,list]=await Promise.all([api('blocks',{params:{page:1,limit:30}}),api('blacklist')]);if(!blocks||!list)return;
+  setMain(`<h1>封禁管理</h1>
+<div class="card" style="margin-bottom:16px"><h3 class="section-title">封锁记录</h3>
+<table><thead><tr><th>封锁时间</th><th>IP</th><th>时长</th><th>状态</th><th>操作</th></tr></thead>
+<tbody>${(blocks.data||[]).map(r=>`<tr><td>${r.create_date||''}</td><td><code>${r.ip||''}</code></td><td>${r.blocking_time?r.blocking_time+'s':'永久'}</td><td>${r.is_block?'<span class="badge badge-danger">封锁中</span>':'<span class="badge badge-success">已解除</span>'}</td><td><button class="btn btn-danger btn-sm" onclick="unblock(${r.id})">解封</button></td></tr>`).join('')||'<tr><td colspan="5" class="empty">暂无</td></tr>'}</tbody></table></div>
+<div class="card"><h3 class="section-title">IP 黑/白名单</h3>
+<div class="flex"><div class="row" style="margin-bottom:12px"><button class="btn btn-sm ${_blType==='black'?'btn-primary':''}" style="background:${_blType==='black'?'var(--primary)':'var(--border)'}" onclick="_blType='black';page_bans()">黑名单 (${list.ipBlack.length})</button><button class="btn btn-sm ${_blType==='white'?'btn-primary':''}" style="background:${_blType==='white'?'var(--primary)':'var(--border)'}" onclick="_blType='white';page_bans()">白名单 (${list.ipWhite.length})</button></div></div>
+<div class="row"><input id="newIP" placeholder="IP 地址" style="width:200px"><button class="btn btn-primary btn-sm" onclick="addIP()">添加</button></div>
+<table style="margin-top:12px"><thead><tr><th>IP</th><th>状态</th><th>操作</th></tr></thead>
+<tbody>${(_blType==='black'?list.ipBlack:list.ipWhite).map(rule=>{const ip=ipRuleValue(rule),state=ipRuleState(rule);return `<tr><td><code>${ip}</code></td><td><span class="toggle ${state==='on'?'on':'off'}" onclick="toggleIPState('${ip}','${state}')"></span></td><td><button class="btn btn-danger btn-sm" onclick="removeIP('${ip}')">移除</button></td></tr>`}).join('')||'<tr><td colspan="3" class="empty">暂无</td></tr>'}</tbody></table></div>`);
 }
-async function unblock(id){const r=await api('unblock',{method:'POST',body:{id}});if(r&&r.ok){toast('已解封');page_blocks()}}
+async function page_blocks(){return page_bans()}
+async function page_blacklist(){return page_bans()}
+async function unblock(id){const r=await api('unblock',{method:'POST',body:{id}});if(r&&r.ok){toast('已解封');page_bans()}}
 
 let _geoState='off';
 async function lookupASN(){
@@ -247,18 +277,9 @@ function toggleGeo(){_geoState=_geoState==='on'?'off':'on';const b=$('#geoBtn');
 async function saveGeo(){const d=await api('geo_config',{method:'POST',body:{state:_geoState,action:$('#geoAction').value,rules:$('#geoRules').value.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean)}});if(d&&d.ok)toast('已保存并重载')}
 
 let _blType='black';
-async function page_blacklist(){
-  const d=await api('blacklist');if(!d)return;
-  setMain(`<h1>🔒 IP黑/白名单</h1>
-<div class="card">
-<div class="flex"><div class="row" style="margin-bottom:12px"><button class="btn btn-sm ${_blType==='black'?'btn-primary':''}" style="background:${_blType==='black'?'var(--primary)':'var(--border)'}" onclick="_blType='black';page_blacklist()">黑名单 (${d.ipBlack.length})</button><button class="btn btn-sm ${_blType==='white'?'btn-primary':''}" style="background:${_blType==='white'?'var(--primary)':'var(--border)'}" onclick="_blType='white';page_blacklist()">白名单 (${d.ipWhite.length})</button></div></div>
-<div class="row"><input id="newIP" placeholder="IP 地址" style="width:200px"><button class="btn btn-primary btn-sm" onclick="addIP()">添加</button></div>
-<table style="margin-top:12px"><thead><tr><th>IP</th><th>状态</th><th>操作</th></tr></thead>
-<tbody>${(_blType==='black'?d.ipBlack:d.ipWhite).map(rule=>{const ip=ipRuleValue(rule),state=ipRuleState(rule);return `<tr><td><code>${ip}</code></td><td><span class="toggle ${state==='on'?'on':'off'}" onclick="toggleIPState('${ip}','${state}')"></span></td><td><button class="btn btn-danger btn-sm" onclick="removeIP('${ip}')">移除</button></td></tr>`}).join('')||'<tr><td colspan="3" class="empty">暂无</td></tr>'}</tbody></table></div>`);
-}
-async function addIP(){const ip=$('#newIP').value.trim();if(!ip)return;const r=await api('blacklist_add',{method:'POST',body:{ip,type:_blType}});if(r&&r.ok){toast(r.message);$('#newIP').value='';page_blacklist()}}
-async function removeIP(ip){const r=await api('blacklist_remove',{method:'POST',body:{ip,type:_blType}});if(r&&r.ok){toast(r.message);page_blacklist()}}
-async function toggleIPState(ip,state){const ns=state==='on'?'off':'on';const r=await api('blacklist_state',{method:'POST',body:{ip,type:_blType,state:ns}});if(r&&r.ok){toast('状态已更新');page_blacklist()}else toast('状态更新失败','error')}
+async function addIP(){const ip=$('#newIP').value.trim();if(!ip)return;const r=await api('blacklist_add',{method:'POST',body:{ip,type:_blType}});if(r&&r.ok){toast(r.message);$('#newIP').value='';page_bans()}}
+async function removeIP(ip){const r=await api('blacklist_remove',{method:'POST',body:{ip,type:_blType}});if(r&&r.ok){toast(r.message);page_bans()}}
+async function toggleIPState(ip,state){const ns=state==='on'?'off':'on';const r=await api('blacklist_state',{method:'POST',body:{ip,type:_blType,state:ns}});if(r&&r.ok){toast('状态已更新');page_bans()}else toast('状态更新失败','error')}
 
 function abChecked(id){return $(id).checked}
 function abLines(id){return $(id).value.split('\n').map(x=>x.trim()).filter(Boolean)}
@@ -291,15 +312,26 @@ async function page_autoban(){
   const d=await api('autoban_config');if(!d)return;const catalog=await api('autoban_catalog');if(!catalog)return;const c=d.config||{},s=d.status||{};
   _abJails=JSON.parse(JSON.stringify(c.jails||[]));_abFilters=JSON.parse(JSON.stringify(c.custom_filters||[]));_abCatalog=catalog.filters||[];
   const enabled=c.enabled, active=s.output&&/Status for the jail|active|running/i.test(s.output), currentBans=(s.output?.match(/Currently banned:\s*(\d+)/i)||[])[1]||0;
-  setMain(`<div class="autoban-hero"><div><h1>自动封禁</h1><p>管理 WAF 专属 Fail2ban 规则；不会修改 1Panel 的 SSH Jail 或系统默认配置。</p></div><div class="autoban-hero-actions"><button class="btn btn-primary" onclick="saveAutoban()">保存配置（不重启）</button><button class="btn btn-danger" onclick="restartAutoban()">应用配置并重启</button></div></div>
+  const preset=autobanPresetName(c);
+  const presetHint={loose:'10 分钟内打 8 次再封 30 分钟',standard:'10 分钟内打 5 次再封 1 小时',strict:'10 分钟内打 3 次再封 1 天',custom:'当前是自定义阈值，可在高级设置里改'}[preset];
+  setMain(`<div class="autoban-hero"><div><h1>自动封禁</h1><p>反复打网站的 IP 会被暂时封禁。不会修改 1Panel 的 SSH 防护。</p></div></div>
+<div id="abSimpleView" class="card autoban-card autoban-simple">
+  <div class="autoban-simple-status"><span class="badge ${enabled?'badge-success':'badge-danger'}">${enabled?'保护已开启':'保护未开启'}</span><div class="autoban-muted">当前封禁 ${currentBans} 个 IP · Fail2ban ${active?'运行中':'待检查'} · ${c.local_ban?'本机防火墙':''}${c.waf_blacklist?' · WAF 黑名单':''}${c.cloudflare_ban?' · Cloudflare':''}</div></div>
+  <div class="autoban-hero-actions"><button class="btn ${enabled?'btn-danger':'btn-primary'}" onclick="toggleAutobanProtection()">${enabled?'关闭保护':'开启保护'}</button></div>
+  <div class="form-group"><label>灵敏度</label><div class="autoban-presets"><button class="btn btn-sm ${preset==='loose'?'btn-primary':''}" onclick="applyAutobanPreset('loose')">宽松</button><button class="btn btn-sm ${preset==='standard'?'btn-primary':''}" onclick="applyAutobanPreset('standard')">标准</button><button class="btn btn-sm ${preset==='strict'?'btn-primary':''}" onclick="applyAutobanPreset('strict')">严格</button></div><div class="hint">${presetHint}</div></div>
+  <div class="autoban-manual"><div class="form-group"><label>手动操作 IP</label><input id="abManualIp" placeholder="例如 203.0.113.9…" autocomplete="off"></div><button class="btn btn-danger btn-sm" onclick="manualAutoban('ban')">手动封禁</button><button class="btn btn-sm autoban-secondary" onclick="manualAutoban('unban')">手动解封</button></div>
+</div>
+<details id="abAdvanced" class="autoban-advanced"><summary>高级设置</summary>
+<div class="autoban-hero-actions" style="margin:10px 0 12px"><button class="btn" onclick="saveAutoban()">保存配置（不重启）</button><button class="btn btn-danger" onclick="restartAutoban()">应用配置并重启</button></div>
 <div class="autoban-summary-grid"><div class="autoban-stat"><div class="label">自动封禁状态</div><div class="value"><span class="badge ${enabled?'badge-success':'badge-danger'}">${enabled?'已启用':'已关闭'}</span></div><div class="autoban-muted">主 Jail: ${escapeHtml(c.jail_name||'—')}</div></div><div class="autoban-stat"><div class="label">Fail2ban 进程</div><div class="value"><span class="badge ${active?'badge-success':'badge-warn'}">${active?'运行中':'待检查'}</span></div><div class="autoban-muted">当前封禁 IP：${currentBans}</div></div><div class="autoban-stat"><div class="label">附加 Jail</div><div class="value">${(c.jails||[]).filter(j=>j.enabled).length} / ${(c.jails||[]).length}</div><div class="autoban-muted">实际生效 = 总开关 + Jail 开关</div></div><div class="autoban-stat"><div class="label">封禁动作</div><div class="value" style="font-size:15px">${c.local_ban?'本机防火墙':'未启用'}</div><div class="autoban-muted">${c.waf_blacklist?'同步 WAF 黑名单':''}${c.cloudflare_ban?' · Cloudflare':''}</div></div></div>
 <div class="autoban-policy-grid"><div class="card autoban-card"><h3>主 Jail</h3><div class="hint">主 Jail 负责匹配 WAF 日志。下面的阈值和动作是主 Jail 的共享基础；附加 Jail 可单独覆盖阈值。</div><div class="autoban-switches"><label class="autoban-switch"><input type="checkbox" id="abEnabled" ${enabled?'checked':''}/>启用 WAF 自动封禁</label><label class="autoban-switch"><input type="checkbox" id="abLocal" ${c.local_ban?'checked':''}/>本机防火墙</label><label class="autoban-switch"><input type="checkbox" id="abWaf" ${c.waf_blacklist?'checked':''}/>写入 WAF 黑名单</label><label class="autoban-switch"><input type="checkbox" id="abCf" ${c.cloudflare_ban?'checked':''}/>Cloudflare 封禁</label><label class="autoban-switch"><input type="checkbox" id="abRealIp" ${c.cf_real_ip_enabled?'checked':''}/>启用真实 IP</label></div><div class="autoban-fields" style="margin-top:14px"><div class="form-group"><label>Jail 名称</label><input id="abJail" value="${escapeHtml(c.jail_name||'')}"></div><div class="form-group"><label>Filter 名称</label><input id="abFilter" value="${escapeHtml(c.filter_name||'')}"></div><div class="form-group"><label>设置端口</label><input id="abPort" value="${escapeHtml(c.port||'80,443')}" placeholder="80,443…"></div><div class="form-group"><label>匹配状态码</label><input id="abCodes" value="${(c.status_codes||[]).join(',')}"></div><div class="form-group"><label>最大重试次数</label><input id="abMax" type="number" value="${c.maxretry||5}"></div><div class="form-group"><label>统计窗口（秒）</label><input id="abFind" type="number" value="${c.findtime||600}"></div><div class="form-group"><label>封禁时长（秒）</label><input id="abBan" type="number" value="${c.bantime||3600}"></div><div class="form-group"><label>封禁方式</label><select id="abBanaction"><option value="iptables-allports" ${c.banaction==='iptables-allports'?'selected':''}>iptables-allports</option><option value="iptables-multiport" ${c.banaction==='iptables-multiport'?'selected':''}>iptables-multiport</option><option value="firewallcmd-ipset" ${c.banaction==='firewallcmd-ipset'?'selected':''}>firewallcmd-ipset</option><option value="ufw" ${c.banaction==='ufw'?'selected':''}>ufw</option></select></div><div class="form-group"><label>防火墙链</label><input id="abChain" value="${escapeHtml(c.chain||'DOCKER-USER')}"></div></div></div>
-<div class="card autoban-card"><h3>共享策略</h3><div class="hint">这些值仅影响 WAF 自动封禁，不影响 1Panel 的 <code>[DEFAULT]</code>、<code>[sshd]</code> 或 SSH 端口。</div><div class="form-group"><label>日志路径（每行一个）</label><textarea id="abLogpaths" style="height:92px">${(c.logpaths||[]).join('\n')}</textarea></div><div class="form-group"><label>忽略 IP/CIDR（每行一个）</label><textarea id="abIgnoreIps" style="height:70px">${(c.ignore_ips||[]).join('\n')}</textarea></div><div class="autoban-danger-note">端口是封禁目标端口，不是日志监听端口。</div></div></div>
+<div class="card autoban-card"><h3>共享策略</h3><div class="hint">这些值仅影响 WAF 自动封禁，不影响 1Panel 的 <code>[DEFAULT]</code>、<code>[sshd]</code> 或 SSH 端口。</div><div class="form-group"><label>日志路径（每行一个，已按 1Panel v1/v2 自动探测）</label><textarea id="abLogpaths" style="height:92px">${(c.logpaths||[]).join('\n')}</textarea><div class="hint">探测到：${(d.detected_logpaths||[]).join('；')||'使用内置默认路径'}</div></div><div class="form-group"><label>忽略 IP/CIDR（每行一个）</label><textarea id="abIgnoreIps" style="height:70px">${(c.ignore_ips||[]).join('\n')}</textarea></div><div class="autoban-danger-note">端口是封禁目标端口，不是日志监听端口。</div></div></div>
 <div class="autoban-resource-columns">
 <div class="card autoban-card"><div class="autoban-jails-toolbar"><div><h3>附加 Jails</h3><div class="hint" style="margin:0">每个 Jail 可独立选择 Filter、日志、端口和封禁动作；空字段继承共享策略。</div></div><button class="btn btn-primary btn-sm" onclick="newAutobanJail()">新建 Jail</button></div><div id="abDependencySummary" class="autoban-dependency"></div><div class="hint">依赖链：日志来源 → Filter 提取 IP → Jail 统计触发 → 执行封禁动作</div><div id="abJailResources" class="autoban-resource-list"></div><div id="abResourceEditor"></div></div>
 <div class="card autoban-card"><div class="autoban-jails-toolbar"><div><h3>自定义 Filter</h3><div class="hint" style="margin:0">默认仅显示面板创建且可编辑的 Filter；删除被引用的 Filter 会被阻止。</div></div><div class="row"><button class="btn btn-sm" onclick="showSystemFilters()">查看系统 Filter</button><button class="btn btn-primary btn-sm" onclick="newAutobanFilter()">新建 Filter</button></div></div><div id="abFilterResources" class="autoban-resource-list"></div><div id="abFilterResourceEditor"></div></div></div>
 <div class="card autoban-card"><details class="autoban-advanced"><summary>备份、检查与 Cloudflare（可选）</summary><p class="hint" style="margin-top:10px">日常只需保存配置并应用。这里用于迁移备份、检查将写入的文件，或使用 Cloudflare 时再填写。</p><details class="autoban-subsection"><summary>备份配置</summary><p class="hint">导入只进入页面草稿，不会立即写入系统。</p><div class="autoban-inline-actions"><button class="btn btn-sm" onclick="exportAutobanConfig()">导出 JSON</button><button class="btn btn-sm" onclick="$('#abImportFile').click()">恢复备份</button><input id="abImportFile" type="file" accept="application/json" hidden onchange="importAutobanConfig(this)"></div></details><details class="autoban-subsection"><summary>检查与预览</summary><p class="hint">先校验草稿；“查看将写入的文件”只显示结果，不会修改系统。</p><div class="autoban-inline-actions"><button class="btn btn-sm" onclick="validateAutobanDraft()">校验草稿</button><button class="btn btn-sm" onclick="previewAutobanConfig()">查看将写入的文件</button></div><pre id="abPreviewOutput" class="autoban-status" aria-live="polite">尚未预览</pre></details><details class="autoban-subsection"><summary>规则与诊断（通常无需修改）</summary><p class="hint">仅在排查匹配规则时使用；这里不会自行应用配置。Filter 将写入 <code>/etc/fail2ban/filter.d/&lt;name&gt;.conf</code>，Jail 将写入 <code>/etc/fail2ban/jail.d/waf-panel-autoban.local</code>。</p><div class="form-group"><label>忽略正则</label><input id="abIgnoreRegex" value="${escapeHtml(c.ignore_regex||'')}"></div><div class="form-group"><label>自定义 Filter（JSON，只读）</label><textarea id="abFilters" readonly style="height:150px;font-family:monospace;font-size:12px">${escapeHtml(JSON.stringify(c.custom_filters||[],null,2))}</textarea></div></details><details class="autoban-subsection"><summary>Cloudflare 与真实 IP（可选）</summary><p class="hint">仅在启用 Cloudflare 封禁或经过 Cloudflare 代理时填写。保存后才会写入配置。</p><div class="form-group"><label>Cloudflare API 配置</label><div class="autoban-fields"><input id="abCfEmail" aria-label="Cloudflare 邮箱" value="${escapeHtml(c.cloudflare_email||'')}" placeholder="邮箱…"><input id="abCfKey" aria-label="Cloudflare API 密钥" type="password" value="${escapeHtml(c.cloudflare_api_key||'')}" placeholder="API 密钥 / 令牌…"><input id="abCfNote" aria-label="Cloudflare 备注" value="${escapeHtml(c.cloudflare_note||'')}" placeholder="备注…"><select id="abRealIpHeader" aria-label="真实 IP Header"><option value="CF-Connecting-IP" ${c.real_ip_header==='CF-Connecting-IP'?'selected':''}>CF-Connecting-IP</option><option value="X-Forwarded-For" ${c.real_ip_header==='X-Forwarded-For'?'selected':''}>X-Forwarded-For</option><option value="X-Real-IP" ${c.real_ip_header==='X-Real-IP'?'selected':''}>X-Real-IP</option><option value="True-Client-IP" ${c.real_ip_header==='True-Client-IP'?'selected':''}>True-Client-IP</option></select></div><label class="autoban-switch" style="margin-top:8px"><input type="checkbox" id="abRealIpRecursive" ${c.real_ip_recursive?'checked':''}/>real_ip_recursive</label><textarea id="abCfRanges" style="height:90px;margin-top:8px">${(c.cf_real_ip_ranges||[]).join('\n')}</textarea></div></details></details></div>
-<div class="card autoban-card"><h3>运行操作</h3><div class="hint">保存只是写入并校验配置；重启 Fail2ban 必须显式执行。</div><div class="autoban-manual"><div class="form-group"><label>手动操作 IP</label><input id="abManualIp" placeholder="例如 203.0.113.9…" autocomplete="off"></div><button class="btn btn-danger btn-sm" onclick="manualAutoban('ban')">手动封禁</button><button class="btn btn-sm autoban-secondary" onclick="manualAutoban('unban')">手动解封</button></div><pre id="abStatus" class="autoban-status" aria-live="polite">${escapeHtml(translateFail2banOutput(s.output||''))}</pre><button class="btn btn-sm" style="margin-top:10px;background:var(--border)" onclick="refreshAutobanStatus()">刷新状态</button></div></section>`);
+<div class="card autoban-card"><h3>运行操作</h3><div class="hint">保存只是写入并校验配置；重启 Fail2ban 必须显式执行。</div><pre id="abStatus" class="autoban-status" aria-live="polite">${escapeHtml(translateFail2banOutput(s.output||''))}</pre><button class="btn btn-sm" style="margin-top:10px;background:var(--border)" onclick="refreshAutobanStatus()">刷新状态</button></div>
+</details>`);
   renderAutobanResources();
   refreshAutobanJailStatuses();
 }
@@ -312,7 +344,12 @@ function applyImportedAutobanConfig(cfg){const values={abJail:cfg.jail_name,abFi
 async function importAutobanConfig(input){try{const cfg=JSON.parse(await input.files[0].text()),r=await api('autoban_validate',{method:'POST',body:cfg});if(!r?.ok)throw new Error(r?.detail||'校验失败');applyImportedAutobanConfig(r.config);toast('配置已导入草稿，尚未保存')}catch(e){toast('导入失败：'+e.message,'error')}finally{input.value=''}}
 async function refreshAutobanJailStatuses(){await Promise.all(_abJails.map(async(j,i)=>{const r=await api(`autoban_jails/${encodeURIComponent(j.name)}/status`),el=$(`#abJailRuntime-${i}`);if(el)el.textContent=r?.running?`运行状态：运行中 · 当前封禁 ${r.currently_banned||0} · 累计 ${r.total_banned||0}`:'运行状态：未运行'}))}
 
+function autobanPresetName(c){const max=+(c.maxretry||5),find=+(c.findtime||600),ban=+(c.bantime||3600);if(max===8&&find===300&&ban===1800)return 'loose';if(max===3&&find===600&&ban===86400)return 'strict';if(max===5&&find===600&&ban===3600)return 'standard';return 'custom'}
+async function saveAndApplyAutoban(extra){let body;try{body=Object.assign(autobanPayload(),extra||{})}catch(e){return}if(body.cloudflare_ban&&!body.cloudflare_api_key)return toast('已勾选 Cloudflare 封禁，请先在高级设置填写 API 密钥','error');const r=await api('autoban_config',{method:'POST',body});if(!(r&&r.ok)) return toast(r?.detail||'保存失败','error');toast(r.message||'已保存，正在应用...');await restartAutoban();page_autoban()}
+async function toggleAutobanProtection(){const on=abChecked('#abEnabled');if(on){if(!confirm('关闭后将停止面板自己的自动封禁，不会改 SSH 防护。确定关闭？'))return;return saveAndApplyAutoban({enabled:false})}if($('#abEnabled')){$('#abEnabled').checked=true;$('#abLocal').checked=true;$('#abWaf').checked=true}return saveAndApplyAutoban({enabled:true,local_ban:true,waf_blacklist:true})}
+async function applyAutobanPreset(name){const map={loose:{maxretry:8,findtime:300,bantime:1800},standard:{maxretry:5,findtime:600,bantime:3600},strict:{maxretry:3,findtime:600,bantime:86400}};const p=map[name];if(!p)return;if($('#abMax')){$('#abMax').value=p.maxretry;$('#abFind').value=p.findtime;$('#abBan').value=p.bantime}return saveAndApplyAutoban(p)}
 async function saveAutoban(){let config;try{config=autobanPayload()}catch(e){return}const r=await api('autoban_config',{method:'POST',body:config});if(r&&r.ok){toast(r.message);page_autoban()}else toast(r?.detail||'保存失败','error')}
+async function quickStartAutoban(){return toggleAutobanProtection()}
 async function restartAutoban(){const r=await api('autoban_restart',{method:'POST'});if(r&&r.ok){toast('fail2ban 已重启');refreshAutobanStatus()}else{toast('重启失败','error');if(r)$('#abStatus').textContent=r.output||''}}
 function translateFail2banOutput(text){return String(text||'').replace(/Status for the jail/gi,'Jail 状态').replace(/Currently banned/gi,'当前封禁').replace(/Total banned/gi,'累计封禁').replace(/Banned IP list/gi,'封禁 IP 列表').replace(/File list/gi,'文件列表').replace(/Jail list/gi,'Jail 列表').replace(/active/gi,'运行中').replace(/inactive/gi,'未运行').replace(/enabled/gi,'已启用').replace(/disabled/gi,'已停用')}
 async function refreshAutobanStatus(){const r=await api('autoban_status');if(r)$('#abStatus').textContent=translateFail2banOutput(r.output||'')}
@@ -320,13 +357,13 @@ async function manualAutoban(op){const ip=$('#abManualIp').value.trim();if(!ip)r
 
 async function page_pages(){
   const d=await api('pages');if(!d)return;
-  setMain(`<h1>📄 拦截页面</h1><div class="card"><table><thead><tr><th>文件名</th><th>大小</th><th>修改时间</th><th>操作</th></tr></thead>
+  setMain(`<h1>拦截页面</h1><div class="card"><table><thead><tr><th>文件名</th><th>大小</th><th>修改时间</th><th>操作</th></tr></thead>
 <tbody>${d.pages.map(p=>`<tr><td><code>${p.name}</code></td><td>${(p.size/1024).toFixed(1)}KB</td><td>${new Date(p.mtime*1000).toLocaleString()}</td><td><button class="btn btn-primary btn-sm" onclick="editPage('${p.name}')">编辑</button></td></tr>`).join('')}</tbody></table></div>`);
 }
 async function editPage(name){
   const d=await api('page_get',{params:{name}});if(!d)return;
-  setMain(`<h1>📄 编辑: ${name}</h1><div class="card"><textarea id="pgContent" style="height:60vh;font-family:monospace;font-size:12px">${escapeHtml(d.content)}</textarea>
-<div class="row" style="margin-top:12px"><button class="btn btn-primary" onclick="savePage('${name}')">💾 保存并重载</button><button class="btn" style="background:var(--border)" onclick="page_pages()">← 返回</button></div></div>`);
+  setMain(`<h1>编辑: ${name}</h1><div class="card"><textarea id="pgContent" style="height:60vh;font-family:monospace;font-size:12px">${escapeHtml(d.content)}</textarea>
+<div class="row" style="margin-top:12px"><button class="btn btn-primary" onclick="savePage('${name}')">保存并重载</button><button class="btn" style="background:var(--border)" onclick="page_pages()">← 返回</button></div></div>`);
 }
 async function savePage(name){const r=await api('page_save',{method:'POST',body:{name,content:$('#pgContent').value}});if(r&&r.ok)toast('已保存并重载')}
 

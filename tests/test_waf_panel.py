@@ -123,10 +123,13 @@ class WafPanelAutobanApiTests(unittest.TestCase):
         self.assertEqual(result["currently_banned"], 2)
 
 
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+
+
 class WafPanelTemplateTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.template = Path("/opt/waf-panel/templates/index.html").read_text()
+        cls.template = (PROJECT_DIR / "templates" / "index.html").read_text()
 
     def test_dashboard_integrates_map_and_geo_controls(self):
         self.assertIn('id="dashboardMap"', self.template)
@@ -188,6 +191,26 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertIn('手动封禁', self.template)
         self.assertIn('手动解封', self.template)
         self.assertIn('aria-live="polite"', self.template)
+        self.assertIn('开启保护', self.template)
+        self.assertIn('关闭保护', self.template)
+        self.assertIn('toggleAutobanProtection', self.template)
+
+    def test_autoban_simple_view_hides_workbench_behind_advanced(self):
+        self.assertIn('id="abSimpleView"', self.template)
+        self.assertIn('保护已开启', self.template)
+        self.assertIn('保护未开启', self.template)
+        self.assertIn('灵敏度', self.template)
+        self.assertIn('applyAutobanPreset', self.template)
+        self.assertIn("applyAutobanPreset('loose')", self.template)
+        self.assertIn("applyAutobanPreset('standard')", self.template)
+        self.assertIn("applyAutobanPreset('strict')", self.template)
+        self.assertIn('id="abAdvanced"', self.template)
+        simple_at = self.template.index('id="abSimpleView"')
+        advanced_at = self.template.index('id="abAdvanced"')
+        jail_at = self.template.index('>主 Jail</h3>')
+        self.assertLess(simple_at, advanced_at)
+        self.assertLess(advanced_at, jail_at)
+        self.assertIn('高级设置', self.template)
 
     def test_autoban_page_has_structured_jail_and_filter_management(self):
         for marker in ('id="abJailResources"', 'id="abFilterResources"', 'id="abResourceEditor"'):
