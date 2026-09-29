@@ -18,6 +18,8 @@ NGINX_RELOAD_CMD = [
     "/usr/local/openresty/nginx/sbin/nginx", "-s", "reload",
 ]
 
+from password import current_password, verify_password, change_password
+
 PANEL_PASSWORD = os.environ.get("WAF_PANEL_PASSWORD", "***")
 SESSION_TTL = int(os.environ.get("WAF_PANEL_SESSION_TTL", "86400"))
 PANEL_ROLE = os.environ.get("WAF_PANEL_ROLE", "console").strip().lower() or "console"
@@ -85,7 +87,7 @@ alias_map = {
 }
 
 def auth_secret():
-    return hashlib.sha256(f"{PANEL_PASSWORD}|waf-panel".encode()).hexdigest()
+    return hashlib.sha256(f"{current_password() or PANEL_PASSWORD}|waf-panel".encode()).hexdigest()
 
 def auth_make_token(_ip: str = ""):
     # Do not bind sessions to client IP across mobile/desktop view switches.

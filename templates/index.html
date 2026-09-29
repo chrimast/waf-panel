@@ -151,6 +151,7 @@ input#abEnabled{
   <a class="nav-link" onclick="nav('autoban')">自动封禁</a>
   <a class="nav-link" onclick="nav('pages')">拦截页面</a>
   <a class="nav-link" onclick="nav('nodes')">节点</a>
+  <a class="nav-link" onclick="nav('password')">修改密码</a>
   <div class="node-switch">
     <label for="nodeSelect">当前节点</label>
     <select id="nodeSelect" onchange="switchNode(this.value)"></select>
@@ -163,7 +164,7 @@ input#abEnabled{
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s),api=async(action,opt={})=>{const u='/api/'+action+(opt.params?'?'+new URLSearchParams(opt.params):'');const r=await fetch(u,{method:opt.method||'GET',headers:{'Content-Type':'application/json'},body:opt.body?JSON.stringify(opt.body):void 0});if(r.status===401){const j=await r.json();if(j.need_login){location.href='/login';return{}}}return r.json()};
 function toast(msg,type='success'){const t=document.createElement('div');t.className='toast toast-'+type;t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),3000)}
 function setMain(h){$('#main').innerHTML=h}
-function nav(page){$$('.nav-link').forEach(a=>a.classList.remove('active'));const l=$(`.nav-link:nth-child(${{dashboard:2,logs:3,bans:4,autoban:5,pages:6,nodes:7}[page]})`);if(l)l.classList.add('active');window['page_'+page]()}
+function nav(page){$$('.nav-link').forEach(a=>a.classList.remove('active'));const l=$(`.nav-link:nth-child(${{dashboard:2,logs:3,bans:4,autoban:5,pages:6,nodes:7,password:8}[page]})`);if(l)l.classList.add('active');window['page_'+page]()}
 function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function ipRuleValue(rule){if(typeof rule==='string')return rule;if(!rule||typeof rule!=='object')return '';if(rule.type==='ipv4')return rule.ipv4||'';if(rule.type==='ipv6')return rule.ipv6||'';if(rule.type==='ipGroup')return rule.ipGroup||'';if(rule.type==='ipArr')return `${rule.ipStart||''}-${rule.ipEnd||''}`;return rule.ipv4||rule.ipv6||rule.ipGroup||''}
 function ipRuleState(rule){if(!rule||typeof rule==='string')return 'on';return rule.state==='off'?'off':'on'}
@@ -413,6 +414,23 @@ async function removeNode(id){
   const r=await api('nodes/delete',{method:'POST',body:{id}});
   if(r&&r.ok){toast('已删除'); page_nodes(); loadNodes();}
   else toast(r?.detail||r?.message||'删除失败','error');
+}
+async function page_password(){
+  setMain(`<h1>修改密码</h1>
+<div class="card" style="max-width:420px">
+<p class="hint">改完后当前登录会失效，需要用新密码重新登录。密码保存在本机数据目录，重建容器不会丢。</p>
+<div class="form-group"><label>当前密码</label><input id="pwCurrent" type="password" autocomplete="current-password"></div>
+<div class="form-group"><label>新密码</label><input id="pwNew" type="password" autocomplete="new-password" placeholder="至少 8 位"></div>
+<div class="form-group"><label>确认新密码</label><input id="pwConfirm" type="password" autocomplete="new-password"></div>
+<button class="btn btn-primary" onclick="submitPassword()">保存新密码</button>
+</div>`);
+}
+async function submitPassword(){
+  const current=$('#pwCurrent').value, next=$('#pwNew').value, confirm=$('#pwConfirm').value;
+  if(next!==confirm) return toast('两次输入的新密码不一致','error');
+  const r=await api('password',{method:'POST',body:{current,new_password:next,confirm}});
+  if(r&&r.ok){toast(r.message||'密码已修改'); location.href='/login';}
+  else toast(r?.detail||r?.message||'修改失败','error');
 }
 
 loadNodes();

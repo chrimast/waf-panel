@@ -85,6 +85,7 @@ async def auth_middleware(request: Request, call_next):
     if (
         path.startswith("/api/")
         and not path.startswith("/api/nodes")
+        and not path.startswith("/api/password")
         and not getattr(request.state, "agent_ok", False)
     ):
         node = current_node()
@@ -140,14 +141,28 @@ async def api_nodes_delete(request: Request):
         raise HTTPException(400, str(exc))
     return {"ok": True, "current_id": current_node_id(), "nodes": list_nodes()}
 
+@app.post("/api/password")
+async def api_change_password(request: Request):
+    body = await request.json()
+    current = str(body.get("current") or body.get("old_password") or "")
+    new_password = str(body.get("new_password") or "")
+    confirm = str(body.get("confirm") or body.get("new_password_confirm") or "")
+    if confirm and confirm != new_password:
+        raise HTTPException(400, "两次输入的新密码不一致")
+    try:
+        change_password(current, new_password)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True, "message": "密码已修改，请重新登录"}
+
 # ── 登录 ──────────────────────────────────────────
 @app.get("/login", include_in_schema=False)
 @app.post("/login", include_in_schema=False)
 async def login_page(request: Request):
     if request.method == "POST":
         form = await request.form()
-        password = form.get("password", "")
-        if password == PANEL_PASSWORD:
+        password = str(form.get("password") or "")
+        if verify_password(password):
             token = auth_make_token(request.client.host)
             resp = RedirectResponse("/", 302)
             resp.set_cookie("waf_token", token, max_age=SESSION_TTL, httponly=True, path="/", samesite="lax")

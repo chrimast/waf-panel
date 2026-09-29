@@ -119,20 +119,28 @@ OR_CONTAINER="$(find_openresty_container)" || fail "未找到运行中的 1Panel
 docker exec "$OR_CONTAINER" /usr/local/openresty/nginx/sbin/nginx -t >/dev/null 2>&1 \
     || fail "OpenResty 配置检测失败"
 
+python_venv_ready() {
+    python3 - <<'PY' >/dev/null 2>&1
+import ensurepip
+PY
+}
+
 ensure_packages() {
-    local missing=()
+    local missing=() pyver=""
     command -v git >/dev/null 2>&1 || missing+=(git)
     command -v curl >/dev/null 2>&1 || missing+=(curl)
     if ! command -v python3 >/dev/null 2>&1; then
-        missing+=(python3 python3-venv)
-    elif ! python3 -m venv --help >/dev/null 2>&1; then
-        missing+=(python3-venv)
+        missing+=(python3 python3-venv python3-pip)
+    elif ! python_venv_ready; then
+        pyver="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+        missing+=(python3-venv "python${pyver}-venv")
     fi
     if [[ ${#missing[@]} -gt 0 ]]; then
         command -v apt-get >/dev/null 2>&1 || fail "缺少依赖: ${missing[*]}；当前仅支持 apt 系统自动安装"
         log "安装系统依赖: ${missing[*]}"
         apt-get update
         DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates python3-pip "${missing[@]}"
+        python_venv_ready || fail "仍无法创建 Python 虚拟环境，请先安装 python3-venv"
     fi
 }
 ensure_packages
@@ -159,7 +167,7 @@ copy_file() {
     install -m "$mode" "$source" "$target"
 }
 
-for file in main.py config.py autoban.py nodes.py requirements.txt; do
+for file in main.py config.py autoban.py nodes.py password.py requirements.txt; do
     copy_file "$SOURCE_DIR/$file" "$PREFIX/$file"
 done
 copy_file "$SOURCE_DIR/install.sh" "$PREFIX/install.sh" 0755
@@ -171,9 +179,17 @@ if [[ "$(readlink -f "$SOURCE_DIR")" != "$(readlink -f "$PREFIX")" ]]; then
     fi
 fi
 
+if [[ -e "$PREFIX/venv" && ! -x "$PREFIX/venv/bin/python" ]]; then
+    log "清理不完整的 Python 环境"
+    rm -rf "$PREFIX/venv"
+fi
+if [[ -x "$PREFIX/venv/bin/python" ]] && ! "$PREFIX/venv/bin/python" -m pip --version >/dev/null 2>&1; then
+    log "清理缺少 pip 的 Python 环境"
+    rm -rf "$PREFIX/venv"
+fi
 if [[ ! -x "$PREFIX/venv/bin/python" ]]; then
     log "创建独立 Python 环境"
-    python3 -m venv "$PREFIX/venv"
+    python3 -m venv "$PREFIX/venv" || fail "创建虚拟环境失败，请安装 python3-venv 后重试"
 fi
 "$PREFIX/venv/bin/python" -m pip install --upgrade pip
 "$PREFIX/venv/bin/python" -m pip install -r "$PREFIX/requirements.txt"
