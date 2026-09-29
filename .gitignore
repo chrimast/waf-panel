@@ -5,6 +5,7 @@ venv/
 .env
 .install-source/
 
+data/
 autoban.json
 scripts/
 generated/

@@ -8,6 +8,19 @@ from fastapi.staticfiles import StaticFiles
 import asyncio, os, sqlite3, json, subprocess, time
 
 from config import *
+from nodes import (
+    LocalNodeError,
+    add_node,
+    bearer_from_request,
+    current_node,
+    current_node_id,
+    delete_node,
+    forward_agent_request,
+    get_node,
+    list_nodes,
+    select_node,
+    verify_agent_token,
+)
 from autoban import (
     apply_autoban_config,
     fail2ban_jail_status,
@@ -30,25 +43,102 @@ app.mount("/static", StaticFiles(directory=os.path.join(PANEL_HOME, "static")), 
 def get_token(request: Request) -> str:
     return request.cookies.get("waf_token", "")
 
+def _is_agent_path(path: str) -> bool:
+    return path == "/agent/health" or path.startswith("/agent/")
+
 def require_auth(request: Request):
-    if request.url.path == "/login" or request.url.path.startswith("/static/"): return
+    path = request.url.path
+    if is_agent_role() and not console_path_allowed(path):
+        raise HTTPException(403, detail="当前为 Agent 模式，仅提供节点接口")
+    if getattr(request.state, "agent_ok", False):
+        return
+    if _is_agent_path(path):
+        token = bearer_from_request(request.headers.get("authorization"))
+        if not verify_agent_token(token):
+            raise HTTPException(401, detail="Agent Token 无效")
+        return
+    if path == "/login" or path.startswith("/static/"):
+        return
     token = get_token(request)
     if not token or not auth_verify_token(token):
-        # API 请求返回 401 JSON
-        if request.url.path.startswith("/api"):
+        if path.startswith("/api"):
             raise HTTPException(401, detail="请先登录")
-        # 页面请求跳转登录
         raise HTTPException(302, headers={"Location": "/login"})
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/agent/api/"):
+        token = bearer_from_request(request.headers.get("authorization"))
+        if not verify_agent_token(token):
+            return JSONResponse({"error": True, "message": "Agent Token 无效"}, 401)
+        request.scope["path"] = path[len("/agent"):]
+        request.state.agent_ok = True
+        path = request.scope["path"]
     try:
         require_auth(request)
     except HTTPException as e:
         if e.status_code == 302:
             return RedirectResponse("/login", 302)
-        return JSONResponse({"error": True, "message": e.detail, "need_login": True}, e.status_code)
+        need_login = e.status_code == 401 and not _is_agent_path(request.url.path) and not getattr(request.state, "agent_ok", False)
+        return JSONResponse({"error": True, "message": e.detail, "need_login": need_login}, e.status_code)
+    if (
+        path.startswith("/api/")
+        and not path.startswith("/api/nodes")
+        and not getattr(request.state, "agent_ok", False)
+    ):
+        node = current_node()
+        if node.get("kind") == "remote":
+            body = None
+            if request.method not in ("GET", "HEAD"):
+                try:
+                    body = await request.json()
+                except Exception:
+                    body = None
+            fwd_path = path
+            if request.url.query:
+                fwd_path = path + "?" + request.url.query
+            payload, status = forward_agent_request(node, request.method, fwd_path, body)
+            return JSONResponse(payload, status)
     return await call_next(request)
+
+@app.get("/agent/health")
+async def agent_health():
+    local = get_node("local") or {}
+    return {"ok": True, "role": "agent", "node_id": local.get("id") or "local"}
+
+@app.get("/api/nodes")
+async def api_nodes():
+    return {"current_id": current_node_id(), "nodes": list_nodes()}
+
+@app.post("/api/nodes")
+async def api_nodes_add(request: Request):
+    body = await request.json()
+    try:
+        node = add_node(body.get("name", ""), body.get("url", ""), body.get("token", ""))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True, "node": node}
+
+@app.post("/api/nodes/select")
+async def api_nodes_select(request: Request):
+    body = await request.json()
+    node_id = (body.get("id") or "").strip()
+    try:
+        select_node(node_id)
+    except KeyError:
+        raise HTTPException(404, "节点不存在")
+    return {"ok": True, "current_id": current_node_id()}
+
+@app.post("/api/nodes/delete")
+async def api_nodes_delete(request: Request):
+    body = await request.json()
+    node_id = (body.get("id") or "").strip()
+    try:
+        delete_node(node_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"ok": True, "current_id": current_node_id(), "nodes": list_nodes()}
 
 # ── 登录 ──────────────────────────────────────────
 @app.get("/login", include_in_schema=False)

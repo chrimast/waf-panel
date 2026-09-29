@@ -20,6 +20,17 @@ NGINX_RELOAD_CMD = [
 
 PANEL_PASSWORD = os.environ.get("WAF_PANEL_PASSWORD", "***")
 SESSION_TTL = int(os.environ.get("WAF_PANEL_SESSION_TTL", "86400"))
+PANEL_ROLE = os.environ.get("WAF_PANEL_ROLE", "console").strip().lower() or "console"
+
+
+def is_agent_role() -> bool:
+    return PANEL_ROLE == "agent"
+
+
+def console_path_allowed(path: str) -> bool:
+    if not is_agent_role():
+        return True
+    return path == "/agent/health" or path.startswith("/agent/")
 
 RULE_NAMES = {
     "waf": "WAF总开关", "xss": "XSS防护", "sql": "SQL注入防护",

@@ -11,6 +11,8 @@ PREFIX="$DEFAULT_PREFIX"
 PORT=""
 BIND="$DEFAULT_BIND"
 PASSWORD=""
+ROLE="console"
+AGENT_TOKEN=""
 ASSUME_YES=0
 NO_START=0
 SOURCE_DIR=""
@@ -29,6 +31,8 @@ usage() {
   --port PORT        访问端口；未指定时交互输入，默认 10087
   --bind ADDRESS     监听地址，默认 0.0.0.0
   --password VALUE   登录密码；未指定时保留旧密码或随机生成
+  --role ROLE        console（总控，默认）或 agent（只提供节点接口）
+  --agent-token VAL  Agent Token；agent 模式未指定时随机生成
   --no-start         安装后不启动服务
   -y, --yes          非交互模式，使用默认端口
   -h, --help         显示帮助
@@ -41,6 +45,8 @@ while [[ $# -gt 0 ]]; do
         --port) [[ $# -ge 2 ]] || fail "--port 缺少参数"; PORT="$2"; shift 2 ;;
         --bind) [[ $# -ge 2 ]] || fail "--bind 缺少参数"; BIND="$2"; shift 2 ;;
         --password) [[ $# -ge 2 ]] || fail "--password 缺少参数"; PASSWORD="$2"; shift 2 ;;
+        --role) [[ $# -ge 2 ]] || fail "--role 缺少参数"; ROLE="$2"; shift 2 ;;
+        --agent-token) [[ $# -ge 2 ]] || fail "--agent-token 缺少参数"; AGENT_TOKEN="$2"; shift 2 ;;
         --no-start) NO_START=1; shift ;;
         -y|--yes) ASSUME_YES=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -63,6 +69,8 @@ prompt_port() {
 [[ "$PORT" =~ ^[0-9]+$ ]] || fail "端口必须是数字"
 (( PORT >= 1 && PORT <= 65535 )) || fail "端口必须在 1-65535 之间"
 [[ "$BIND" != *$'\n'* && "$BIND" != *$'\r'* ]] || fail "监听地址格式无效"
+ROLE="${ROLE,,}"
+[[ "$ROLE" == "console" || "$ROLE" == "agent" ]] || fail "--role 只能是 console 或 agent"
 
 command -v docker >/dev/null 2>&1 || fail "未找到 Docker，请先完成 1Panel 安装"
 docker info >/dev/null 2>&1 || fail "Docker 未运行"
@@ -151,7 +159,7 @@ copy_file() {
     install -m "$mode" "$source" "$target"
 }
 
-for file in main.py config.py autoban.py requirements.txt; do
+for file in main.py config.py autoban.py nodes.py requirements.txt; do
     copy_file "$SOURCE_DIR/$file" "$PREFIX/$file"
 done
 copy_file "$SOURCE_DIR/install.sh" "$PREFIX/install.sh" 0755
@@ -172,11 +180,23 @@ fi
 
 ENV_FILE="$PREFIX/.env"
 OLD_PASSWORD=""
+OLD_AGENT_TOKEN=""
 if [[ -f "$ENV_FILE" ]]; then
     OLD_PASSWORD="$(python3 - "$ENV_FILE" <<'PY'
 import pathlib, shlex, sys
 for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
     if line.startswith("WAF_PANEL_PASSWORD="):
+        try:
+            print(shlex.split(line, posix=True)[0].split("=", 1)[1])
+        except (IndexError, ValueError):
+            pass
+        break
+PY
+)"
+    OLD_AGENT_TOKEN="$(python3 - "$ENV_FILE" <<'PY'
+import pathlib, shlex, sys
+for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
+    if line.startswith("WAF_AGENT_TOKEN="):
         try:
             print(shlex.split(line, posix=True)[0].split("=", 1)[1])
         except (IndexError, ValueError):
@@ -199,6 +219,19 @@ else
     GENERATED_PASSWORD=0
 fi
 [[ "$PASSWORD" != *$'\n'* && "$PASSWORD" != *$'\r'* ]] || fail "密码不能包含换行"
+if [[ -z "$AGENT_TOKEN" ]]; then
+    AGENT_TOKEN="$OLD_AGENT_TOKEN"
+fi
+GENERATED_AGENT_TOKEN=0
+if [[ -z "$AGENT_TOKEN" ]]; then
+    AGENT_TOKEN="$(python3 - <<'PY'
+import secrets
+print(secrets.token_urlsafe(24))
+PY
+)"
+    GENERATED_AGENT_TOKEN=1
+fi
+[[ "$AGENT_TOKEN" != *$'\n'* && "$AGENT_TOKEN" != *$'\r'* ]] || fail "Token 不能包含换行"
 
 write_env_value() {
     local key="$1" value="$2"
@@ -211,6 +244,8 @@ write_env_value() {
     write_env_value WAF_BASE "$WAF_BASE"
     write_env_value OR_CONTAINER "$OR_CONTAINER"
     write_env_value WAF_PANEL_PASSWORD "$PASSWORD"
+    write_env_value WAF_PANEL_ROLE "$ROLE"
+    write_env_value WAF_AGENT_TOKEN "$AGENT_TOKEN"
 } > "$ENV_FILE"
 chmod 600 "$ENV_FILE"
 
@@ -239,7 +274,7 @@ if [[ $NO_START -eq 0 ]]; then
     systemctl restart "$SERVICE_NAME"
     for _ in {1..20}; do
         if systemctl is-active --quiet "$SERVICE_NAME" && \
-           curl -fsS "http://127.0.0.1:$PORT/login" >/dev/null 2>&1; then
+           curl -fsS -H "Authorization: Bearer $AGENT_TOKEN" "http://127.0.0.1:$PORT/agent/health" >/dev/null 2>&1; then
             break
         fi
         sleep 1
@@ -248,7 +283,7 @@ if [[ $NO_START -eq 0 ]]; then
         journalctl -u "$SERVICE_NAME" -n 30 --no-pager >&2 || true
         fail "服务启动失败"
     }
-    curl -fsS "http://127.0.0.1:$PORT/login" >/dev/null 2>&1 || {
+    curl -fsS -H "Authorization: Bearer $AGENT_TOKEN" "http://127.0.0.1:$PORT/agent/health" >/dev/null 2>&1 || {
         journalctl -u "$SERVICE_NAME" -n 30 --no-pager >&2 || true
         fail "服务健康检查失败"
     }
@@ -259,6 +294,7 @@ HOST_IP="${HOST_IP:-127.0.0.1}"
 log "安装完成"
 printf '访问地址: http://%s:%s\n' "$HOST_IP" "$PORT"
 printf '安装目录: %s\n' "$PREFIX"
+printf '运行角色: %s\n' "$ROLE"
 printf 'WAF 数据: %s\n' "$WAF_BASE"
 printf 'OpenResty 容器: %s\n' "$OR_CONTAINER"
 if [[ $GENERATED_PASSWORD -eq 1 ]]; then
@@ -266,4 +302,13 @@ if [[ $GENERATED_PASSWORD -eq 1 ]]; then
 else
     printf '登录密码: 已保留或使用指定密码\n'
 fi
-printf '\n接下来: 浏览器打开上面的地址 → 仪表盘看 WAF 是否运行 → 自动封禁点「开启保护」。\n'
+if [[ $GENERATED_AGENT_TOKEN -eq 1 ]]; then
+    printf 'Agent Token: %s\n' "$AGENT_TOKEN"
+else
+    printf 'Agent Token: 已保留或使用指定 Token\n'
+fi
+if [[ "$ROLE" == "agent" ]]; then
+    printf '\n这台是 Agent。到总控「节点」里填写: http://%s:%s  以及上面的 Agent Token。\n' "$HOST_IP" "$PORT"
+else
+    printf '\n接下来: 浏览器打开上面的地址 → 仪表盘看 WAF 是否运行 → 自动封禁点「开启保护」。其他服务器用 --role agent 安装后，在「节点」里添加。\n'
+fi

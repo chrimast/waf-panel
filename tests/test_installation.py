@@ -106,17 +106,30 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("nav('bans')", html)
         self.assertNotIn("nav('blocks')", html)
         self.assertNotIn("nav('blacklist')", html)
-        self.assertIn("dashboard:2,logs:3,bans:4,autoban:5,pages:6", html)
+        self.assertIn("dashboard:2,logs:3,bans:4,autoban:5,pages:6,nodes:7", html)
+        self.assertIn("nav('nodes')", html)
+        self.assertIn("当前节点", html)
         self.assertIn("<h1>封禁管理</h1>", html)
         self.assertIn("page_bans", html)
         self.assertNotIn(">封锁记录</a>", html)
         self.assertNotIn(">IP 黑/白名单</a>", html)
+        self.assertIn('id="abDetectedLogpaths"', html)
+        self.assertIn(".ab-detected-logpaths{overflow-wrap:anywhere;word-break:break-all", html)
+        self.assertIn("class=\"autoban-simple-controls\"", html)
+        self.assertIn(".autoban-simple-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)", html)
+        self.assertIn("class=\"autoban-simple-protect\"", html)
+        self.assertIn("class=\"autoban-simple-preset\"", html)
 
-    def test_installer_creates_isolated_runtime(self):
+    def test_installer_supports_console_and_agent_roles(self):
+        self.assertIn('--role ROLE', self.source)
+        self.assertIn("WAF_PANEL_ROLE", self.source)
+        self.assertIn("WAF_AGENT_TOKEN", self.source)
+        self.assertIn("nodes.py", self.source)
+        self.assertIn("--role agent", self.source)
         self.assertIn("python3 -m venv", self.source)
         self.assertIn("EnvironmentFile=", self.source)
         self.assertIn("systemctl is-active", self.source)
-        self.assertIn("/login", self.source)
+        self.assertIn("/agent/health", self.source)
 
 
 if __name__ == "__main__":
