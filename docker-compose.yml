@@ -9,13 +9,9 @@ services:
       - .env.docker
     environment:
       WAF_PANEL_HOME: /app
-      WAF_BASE: ${WAF_BASE:-/opt/1panel/apps/openresty/openresty/1pwaf/data}
-      OR_CONTAINER: ${OR_CONTAINER:-1Panel-openresty-bGB2}
       FAIL2BAN_SOCKET: /var/run/fail2ban/fail2ban.sock
       WAF_PANEL_DOCKER: "1"
       FAIL2BAN_ROOT: /etc/fail2ban
-      WAF_PANEL_ROLE: ${WAF_PANEL_ROLE:-console}
-      WAF_AGENT_TOKEN: ${WAF_AGENT_TOKEN:-}
     volumes:
       - ${WAF_BASE:-/opt/1panel/apps/openresty/openresty/1pwaf/data}:${WAF_BASE:-/opt/1panel/apps/openresty/openresty/1pwaf/data}:rw
       - /var/run/docker.sock:/var/run/docker.sock
