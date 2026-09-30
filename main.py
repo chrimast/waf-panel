@@ -171,7 +171,7 @@ async def login_page(request: Request):
     return HTMLResponse(LOGIN_HTML.replace("{MSG}", ""))
 
 LOGIN_HTML = """<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>WAF 管理面板 · 登录</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#1a1b1e;display:flex;align-items:center;justify-content:center;min-height:100vh}
+<style>*{margin:0;padding:0;box-sizing:border-box}html,body{background:#f0f2f7}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f0f2f7;display:flex;align-items:center;justify-content:center;min-height:100vh}
 form{background:#25262b;padding:40px;border-radius:12px;border:1px solid #373a40;width:360px}
 h1{color:#fff;font-size:20px;text-align:center;margin-bottom:24px}
 input{width:100%;padding:12px 16px;background:#1a1b1e;border:1px solid #373a40;color:#c1c2c5;border-radius:8px;font-size:15px;outline:none;margin-bottom:16px}

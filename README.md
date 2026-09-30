@@ -35,7 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/chrimast/waf-panel/main/install.sh 
 http://服务器IP:10087/login
 ```
 
-终端会打印登录密码和 Agent Token。进去后打开「自动封禁」，点「开启保护」。登录后可在侧栏「修改密码」改掉初始密码，改完需要重新登录。
+终端会打印登录密码和 Agent Token。进去后打开「自动封禁」，点「开启保护」。登录后可在侧栏「总控密码」改掉总控网页的初始密码，改完需要重新登录；这不会改远程 Agent。
 
 指定密码和端口：
 

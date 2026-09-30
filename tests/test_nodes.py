@@ -34,7 +34,8 @@ class NodeStoreTests(unittest.TestCase):
         self.assertTrue(secret["token"])
 
     def test_add_remote_node_keeps_token_private(self):
-        node = self.nodes.add_node(name="香港 1", url="http://192.0.2.8:10087", token="remote-agent-token")
+        with patch.object(self.nodes, "http_request", return_value=type("R", (), {"status_code": 200, "json": lambda self=None: {"ok": True}})()):
+            node = self.nodes.add_node(name="香港 1", url="http://192.0.2.8:10087", token="remote-agent-token")
         self.assertEqual(node["kind"], "remote")
         self.assertEqual(node["url"], "http://192.0.2.8:10087")
         self.assertNotIn("token", node)
@@ -42,6 +43,52 @@ class NodeStoreTests(unittest.TestCase):
         self.assertEqual(stored["token"], "remote-agent-token")
         self.nodes.select_node(node["id"])
         self.assertEqual(self.nodes.current_node_id(), node["id"])
+
+    def test_local_node_status_is_online(self):
+        items = self.nodes.list_nodes()
+        self.assertTrue(items[0]["online"])
+        self.assertEqual(items[0]["status"], "online")
+        self.assertEqual(items[0]["message"], "本机直连")
+
+    def test_remote_node_probe_reports_online_offline_and_bad_token(self):
+        captured = []
+
+        class FakeResponse:
+            def __init__(self, status_code, data):
+                self.status_code = status_code
+                self._payload = data
+
+            def json(self):
+                return self._payload
+
+        def fake_request(method, url, headers=None, payload=None, timeout=None):
+            captured.append({"method": method, "url": url, "headers": headers, "timeout": timeout})
+            if "192.0.2.8" in url:
+                return FakeResponse(200, {"ok": True, "role": "agent"})
+            if "192.0.2.9" in url:
+                return FakeResponse(401, {"error": True, "message": "Agent Token 无效"})
+            return FakeResponse(502, {"error": True, "message": "timed out"})
+
+        with patch.object(self.nodes, "http_request", fake_request):
+            ok = self.nodes.add_node("香港 1", "http://192.0.2.8:10087", "good-token")
+            bad_token = self.nodes.add_node("香港 2", "http://192.0.2.9:10087", "bad-token")
+            down = self.nodes.add_node("香港 3", "http://192.0.2.10:10087", "any-token")
+            listed = {item["id"]: item for item in self.nodes.list_nodes()}
+
+        self.assertTrue(ok["online"])
+        self.assertEqual(ok["status"], "online")
+        self.assertEqual(ok["message"], "连接正常")
+        self.assertFalse(bad_token["online"])
+        self.assertEqual(bad_token["status"], "auth")
+        self.assertIn("Token", bad_token["message"])
+        self.assertFalse(down["online"])
+        self.assertEqual(down["status"], "offline")
+        self.assertTrue(listed[ok["id"]]["online"])
+        self.assertFalse(listed[bad_token["id"]]["online"])
+        health_calls = [item for item in captured if item["url"].endswith("/agent/health")]
+        self.assertGreaterEqual(len(health_calls), 3)
+        self.assertEqual(health_calls[0]["headers"]["Authorization"], "Bearer good-token")
+        self.assertLessEqual(health_calls[0]["timeout"], 5)
 
     def test_agent_token_matches_local_or_explicit_secret(self):
         local = self.nodes.get_node("local")

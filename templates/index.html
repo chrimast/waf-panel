@@ -10,7 +10,7 @@
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh}
 .sidebar{width:150px;background:#fff;padding:16px 0;border-right:1px solid var(--border);flex-shrink:0}
 .sidebar h2{padding:0 12px 16px;font-size:14px;color:#111827;border-bottom:1px solid var(--border);margin-bottom:10px}
-.sidebar a{display:block;padding:9px 12px;color:var(--muted);text-decoration:none;font-size:13px;transition:.2s;border-left:3px solid transparent;cursor:pointer;white-space:nowrap}
+.sidebar a{display:block;padding:11px 20px;color:var(--muted);text-decoration:none;font-size:13px;transition:.2s;border-left:3px solid transparent;cursor:pointer;white-space:nowrap}
 .sidebar a:hover,.sidebar a.active{color:#111827;background:#eef4ff;border-left-color:var(--primary)}
 .main{flex:1;min-width:0;padding:24px;overflow-y:auto;max-height:100vh}
 h1{font-size:22px;margin-bottom:20px;color:#111827}
@@ -67,8 +67,8 @@ pre{background:#f8fafc;padding:12px;border-radius:6px;font-size:12px;overflow-x:
 /* minimal-ui-decider: restrained WAF operations workspace */
 :root{--bg:#f0f2f7;--surface:#fff;--surface-muted:#f7f9fb;--border:#dbe5e8;--text:#0b1220;--muted:#58636d;--primary:#199c98;--primary-hover:#187e87;--danger:#c43d4b;--success:#17885f;--warning:#9a6a19;--shadow:0 2px 10px rgba(11,18,32,.06);--radius:10px}
 body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);letter-spacing:.005em}
-.sidebar{width:216px;background:#0b1220;color:#dce8ec;border:0;padding:18px 10px;box-shadow:4px 0 18px rgba(11,18,32,.08)}
-.sidebar h2{padding:4px 12px 22px;margin:0 0 12px;border:0;color:#fff;font-size:16px}.sidebar a{margin:3px 0;padding:11px 12px;border:0;border-radius:8px;color:#aebdc4;font-size:13px;transition:background .15s,color .15s}.sidebar a:hover,.sidebar a.active{color:#fff;background:rgba(25,156,152,.2);border:0}.sidebar a.active::before{content:"";display:inline-block;width:3px;height:16px;margin-right:8px;vertical-align:-3px;border-radius:3px;background:#54c6bd}
+.sidebar{width:220px;background:#0b1220;color:#dce8ec;border:0;padding:18px 10px;box-shadow:4px 0 18px rgba(11,18,32,.08)}
+.sidebar h2{padding:4px 12px 22px;margin:0 0 12px;border:0;color:#fff;font-size:16px}.sidebar a{margin:3px 0;padding:11px 20px;border:0;border-radius:8px;color:#aebdc4;font-size:13px;transition:background .15s,color .15s}.sidebar a:hover,.sidebar a.active{color:#fff;background:rgba(25,156,152,.2);border:0}.sidebar a.active::before{content:"";display:inline-block;width:3px;height:16px;margin-right:8px;vertical-align:-3px;border-radius:3px;background:#54c6bd}
 .main{padding:30px 34px;max-width:1600px;background:var(--bg)}h1{font-size:24px;line-height:1.25;font-weight:700;color:var(--text);margin:0 0 22px;letter-spacing:-.02em}h1::after{content:"";display:block;width:30px;height:3px;margin-top:9px;border-radius:3px;background:var(--primary)}
 .card,.autoban-stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}.card{padding:20px}.autoban-stat{border-left:3px solid var(--primary)}.card .label,.autoban-stat .label{color:var(--muted);font-size:11px;font-weight:650;letter-spacing:.05em}.card .value{color:var(--text);font-size:26px}.card .sub,.hint,.autoban-muted{color:var(--muted)}
 .dashboard-top{grid-template-columns:minmax(0,1.6fr) minmax(330px,.8fr);gap:18px}.dashboard-map{border-color:var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}.dashboard-side{gap:14px}.dashboard-stats{gap:12px}.dashboard-stats .card{padding:16px}.dashboard-recent{margin-top:18px}.dashboard-grid,.autoban-policy-grid{gap:18px}.section-title{font-size:15px;font-weight:700;color:var(--text)}
@@ -81,13 +81,13 @@ input,select,textarea{border:1px solid #cbd9dc;border-radius:7px;background:#fff
 /* Layout corrections: viewport scrolling + light responsive navigation */
 html{min-height:100%;background:var(--bg)}
 body{min-height:100vh;overflow-x:hidden;align-items:stretch}
-.sidebar{position:sticky;top:0;height:100vh;align-self:flex-start;width:162px;flex:0 0 162px;max-width:162px;background:var(--bg);color:var(--text);border-right:1px solid var(--border);box-shadow:none;font-size:14px}
+.sidebar{position:sticky;top:0;height:100vh;align-self:flex-start;width:220px;flex:0 0 220px;max-width:220px;background:var(--bg);color:var(--text);border-right:1px solid var(--border);box-shadow:none;font-size:14px}
 .sidebar h2{color:var(--text);border-bottom:1px solid var(--border)}
-.sidebar a{color:var(--muted);font-size:14px}
+.sidebar a{color:var(--muted);font-size:14px;padding:11px 20px}
 .sidebar a:hover,.sidebar a.active{color:var(--text);background:rgba(25,156,152,.12)}
 .sidebar a.active::before{background:var(--primary)}
 .main{flex:1 1 auto;width:auto;max-width:none;max-height:none;overflow:visible;min-width:0}
-@media(max-width:900px) and (min-width:601px){.sidebar{width:143px;flex-basis:143px;max-width:143px}.main{width:auto}}
+@media(max-width:900px) and (min-width:601px){.sidebar{width:200px;flex-basis:200px;max-width:200px}.main{width:auto}}
 @media(max-width:600px){
   html,body{width:100%;max-width:100%;overflow-x:hidden}
   body{display:block}
@@ -95,6 +95,9 @@ body{min-height:100vh;overflow-x:hidden;align-items:stretch}
   .sidebar h2{display:none}
   .sidebar a{display:flex;align-items:center;justify-content:center;min-width:0;margin:0;padding:10px 5px;border:1px solid transparent;border-radius:7px;text-align:center;font-size:14px;line-height:1.25;white-space:normal}
   .sidebar a:hover,.sidebar a.active{border-color:#9dceca;border-bottom-color:#9dceca;background:rgba(25,156,152,.12);color:var(--text)}
+  .node-switch{grid-column:1/-1;margin:4px 0 0;padding-top:6px}
+  .node-list{gap:4px}
+  .node-item{padding:8px 10px}
   .main{display:block;width:100%;max-width:100%;flex:none;max-height:none;overflow:visible;padding:16px 12px}
   .dashboard-top,.dashboard-grid,.cards,.autoban-policy-grid,.autoban-fields,.autoban-resource-columns{grid-template-columns:1fr;min-width:0}
   .table-scroll{max-width:100%;overflow-x:auto}
@@ -134,8 +137,28 @@ input#abEnabled{
 .autoban-presets .btn{min-width:64px}
 .ab-detected-logpaths{overflow-wrap:anywhere;word-break:break-all;white-space:normal;max-width:100%;min-width:0}
 .node-switch{margin:12px 10px 0;padding-top:10px;border-top:1px solid var(--border)}
-.node-switch label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-.node-switch select{width:100%;max-width:100%}
+.node-switch .node-switch-label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+.node-list{display:flex;flex-direction:column;gap:4px}
+.node-item{display:block;width:100%;text-align:left;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;cursor:pointer;color:var(--text)}
+.node-item .name{display:block;font-size:13px;font-weight:650;line-height:1.35;overflow-wrap:anywhere;word-break:break-word;white-space:normal}
+.node-item .meta{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:3px;line-height:1.3}
+.node-item .node-dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px;background:#98a2ad}
+.node-item .node-dot.online{background:var(--success)}
+.node-item .node-dot.auth{background:var(--danger)}
+.node-item .node-dot.offline,.node-item .node-dot.unknown{background:#98a2ad}
+.node-item.active{border-color:var(--primary);background:rgba(25,156,152,.12)}
+.node-item.offline .name{color:var(--muted)}
+.scope-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:-6px 0 18px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:#fff}
+.scope-bar .scope-label{font-size:12px;color:var(--muted);white-space:nowrap}
+.scope-bar .scope-name{font-size:14px;font-weight:700}
+.scope-bar .scope-note{font-size:12px;color:var(--muted)}
+.scope-bar.local{border-left:3px solid var(--primary)}
+.scope-bar.remote{border-left:3px solid #9b8468}
+.scope-bar.console{border-left:3px solid var(--primary);background:#f7fbfb}
+.node-kind{display:inline-block;margin-left:6px}
+.node-status-note{color:var(--muted);font-size:12px;margin-top:4px}
+.sidebar-nav{display:contents}
+@media(max-width:600px){.scope-bar{margin:0 0 14px}}
 .autoban-policy-grid,.autoban-card,.autoban-card .form-group{min-width:0;max-width:100%}
 #abAdvanced{margin-top:12px}
 #abAdvanced>summary{cursor:pointer;font-size:14px;font-weight:700;color:var(--text);padding:10px 0}
@@ -144,17 +167,17 @@ input#abEnabled{
 </head>
 <body>
 <nav class="sidebar">
-  <h2>WAF 管理面板</h2>
-  <a class="nav-link active" onclick="nav('dashboard')">仪表盘</a>
-  <a class="nav-link" onclick="nav('logs')">攻击日志</a>
-  <a class="nav-link" onclick="nav('bans')">封禁管理</a>
-  <a class="nav-link" onclick="nav('autoban')">自动封禁</a>
-  <a class="nav-link" onclick="nav('pages')">拦截页面</a>
-  <a class="nav-link" onclick="nav('nodes')">节点</a>
-  <a class="nav-link" onclick="nav('password')">修改密码</a>
+  <h2>WAF 总控</h2>
+  <a class="nav-link active" data-page="dashboard" onclick="nav('dashboard')">仪表盘</a>
+  <a class="nav-link" data-page="logs" onclick="nav('logs')">攻击日志</a>
+  <a class="nav-link" data-page="bans" onclick="nav('bans')">封禁管理</a>
+  <a class="nav-link" data-page="autoban" onclick="nav('autoban')">自动封禁</a>
+  <a class="nav-link" data-page="pages" onclick="nav('pages')">拦截页面</a>
+  <a class="nav-link" data-page="nodes" onclick="nav('nodes')">节点</a>
+  <a class="nav-link" data-page="password" onclick="nav('password')">总控密码</a>
   <div class="node-switch">
-    <label for="nodeSelect">当前节点</label>
-    <select id="nodeSelect" onchange="switchNode(this.value)"></select>
+    <div class="node-switch-label">正在管理</div>
+    <div id="nodeList" class="node-list"></div>
   </div>
 </nav>
 <main class="main" id="main"></main>
@@ -163,8 +186,39 @@ input#abEnabled{
 <script>
 const $=s=>document.querySelector(s),$$=s=>document.querySelectorAll(s),api=async(action,opt={})=>{const u='/api/'+action+(opt.params?'?'+new URLSearchParams(opt.params):'');const r=await fetch(u,{method:opt.method||'GET',headers:{'Content-Type':'application/json'},body:opt.body?JSON.stringify(opt.body):void 0});if(r.status===401){const j=await r.json();if(j.need_login){location.href='/login';return{}}}return r.json()};
 function toast(msg,type='success'){const t=document.createElement('div');t.className='toast toast-'+type;t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),3000)}
-function setMain(h){$('#main').innerHTML=h}
-function nav(page){$$('.nav-link').forEach(a=>a.classList.remove('active'));const l=$(`.nav-link:nth-child(${{dashboard:2,logs:3,bans:4,autoban:5,pages:6,nodes:7,password:8}[page]})`);if(l)l.classList.add('active');window['page_'+page]()}
+let _nodesCache={current_id:'local',nodes:[]},_currentPage='dashboard';
+function currentNode(){return (_nodesCache.nodes||[]).find(n=>n.id===_nodesCache.current_id)||_nodesCache.nodes[0]||{id:'local',name:'本机',kind:'local',online:true,url:''}}
+function nodeKindLabel(n){return n.kind==='local'?'本机总控':'远程 Agent'}
+function nodeStatusText(n, compact){
+  const status=n.status||(n.online?'online':'offline');
+  const full={online:'连接正常',auth:'Token 无效',offline:'无法连接',unknown:'未检测'};
+  const short={online:'连接正常',auth:'Token 无效',offline:'离线',unknown:'未检测'};
+  return (compact?short:full)[status]||status;
+}
+function nodeStatusBadge(n, compact){
+  const status=n.status||(n.online?'online':'offline');
+  const cls=status==='online'?'badge-success':(status==='auth'?'badge-warn':'badge-danger');
+  return `<span class="badge ${cls}">${nodeStatusText(n, compact)}</span>`;
+}
+function nodeStatusDot(n){
+  const status=n.status||(n.online?'online':'offline');
+  const title=nodeStatusText(n,true);
+  return `<span class="node-dot ${status}" title="${title}" aria-label="${title}"></span>`;
+}
+function scopeBar(kind){
+  const n=currentNode();
+  if(kind==='password'){
+    return `<div class="scope-bar console" id="scopeBar"><span class="scope-label">本页作用范围</span><span class="scope-name">总控登录密码</span><span class="badge badge-success">不影响 Agent</span><span class="scope-note">只改这台总控网页的登录密码，不会改远程 Agent，也不随上方节点切换。</span></div>`;
+  }
+  if(kind==='nodes'){
+    return `<div class="scope-bar console" id="scopeBar"><span class="scope-label">本页作用范围</span><span class="scope-name">总控节点清单</span><span class="badge badge-success">本机总控</span><span class="scope-note">这里只维护有哪些机器。仪表盘、日志、封禁改的是侧栏「正在管理」选中的那一台。</span></div>`;
+  }
+  const cls=n.kind==='local'?'local':'remote';
+  const extra=n.kind==='local'?'本机 1Panel / OpenResty':escapeHtml(n.url||'');
+  return `<div class="scope-bar ${cls}" id="scopeBar"><span class="scope-label">正在管理</span><span class="scope-name">${escapeHtml(n.name||n.id)}</span><span class="badge ${n.kind==='local'?'badge-success':'badge-warn'}">${nodeKindLabel(n)}</span>${nodeStatusBadge(n)}<span class="scope-note">${extra}</span></div>`;
+}
+function setMain(h){$('#main').innerHTML=scopeBar(_currentPage)+h}
+function nav(page){$$('.nav-link').forEach(a=>a.classList.remove('active'));const l=$(`.nav-link[data-page="${page}"]`);if(l)l.classList.add('active');_currentPage=page;window['page_'+page]()}
 function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function ipRuleValue(rule){if(typeof rule==='string')return rule;if(!rule||typeof rule!=='object')return '';if(rule.type==='ipv4')return rule.ipv4||'';if(rule.type==='ipv6')return rule.ipv6||'';if(rule.type==='ipGroup')return rule.ipGroup||'';if(rule.type==='ipArr')return `${rule.ipStart||''}-${rule.ipEnd||''}`;return rule.ipv4||rule.ipv6||rule.ipGroup||''}
 function ipRuleState(rule){if(!rule||typeof rule==='string')return 'on';return rule.state==='off'?'off':'on'}
@@ -381,34 +435,48 @@ async function editPage(name){
 async function savePage(name){const r=await api('page_save',{method:'POST',body:{name,content:$('#pgContent').value}});if(r&&r.ok)toast('已保存并重载')}
 async function loadNodes(){
   const d=await api('nodes'); if(!d) return d;
-  const sel=$('#nodeSelect');
-  if(sel){
-    sel.innerHTML=(d.nodes||[]).map(n=>`<option value="${n.id}" ${n.id===d.current_id?'selected':''}>${escapeHtml(n.name||n.id)}${n.kind==='local'?'（本机）':''}</option>`).join('');
+  _nodesCache=d;
+  const box=$('#nodeList');
+  if(box){
+    box.innerHTML=(d.nodes||[]).map(n=>{
+      const kind=n.kind==='local'?'本机总控':'远程 Agent';
+      const cls=['node-item', n.id===d.current_id?'active':'', n.online?'':'offline'].filter(Boolean).join(' ');
+      return `<button type="button" class="${cls}" onclick="switchNode('${n.id}')"><span class="name">${escapeHtml(n.name||n.id)}</span><span class="meta">${kind}${nodeStatusDot(n)}</span></button>`;
+    }).join('')||'<div class="hint">暂无节点</div>';
   }
   return d;
 }
 async function switchNode(id){
   const r=await api('nodes/select',{method:'POST',body:{id}});
-  if(r&&r.ok){toast('已切换节点'); nav('dashboard');}
+  if(r&&r.ok){toast('已切换正在管理的机器'); await loadNodes(); nav(_currentPage==='password'?'dashboard':_currentPage);}
   else toast(r?.message||'切换失败','error');
 }
 async function page_nodes(){
   const d=await loadNodes(); if(!d) return;
-  const rows=(d.nodes||[]).map(n=>`<tr><td>${escapeHtml(n.name||n.id)}</td><td>${n.kind==='local'?'本机':'远程'}</td><td><code>${escapeHtml(n.url||'本机直连')}</code></td><td>${n.id===d.current_id?'当前':''}</td><td>${n.kind==='local'?'':`<button class="btn btn-danger btn-sm" onclick="removeNode('${n.id}')">删除</button>`}</td></tr>`).join('');
+  const rows=(d.nodes||[]).map(n=>{
+    const extra=n.status==='online'||n.kind==='local'?'':escapeHtml(n.message||'');
+    const mark=n.id===d.current_id?'<div class="hint">当前操作对象</div>':'';
+    return `<tr><td>${escapeHtml(n.name||n.id)}${mark}</td><td><span class="badge ${n.kind==='local'?'badge-success':'badge-warn'}">${n.kind==='local'?'本机总控':'远程 Agent'}</span></td><td><code>${escapeHtml(n.url||'本机直连')}</code></td><td>${nodeStatusBadge(n)}${extra?`<div class="node-status-note">${extra}</div>`:''}</td><td>${n.kind==='local'?'':`<button class="btn btn-danger btn-sm" onclick="removeNode('${n.id}')">删除</button>`}</td></tr>`;
+  }).join('');
   setMain(`<h1>节点</h1>
-<div class="card"><p class="hint">本机默认就是一台节点。其他 1Panel 服务器安装 Agent 后，把地址和 Token 填在这里。</p>
-<table><thead><tr><th>名称</th><th>类型</th><th>地址</th><th></th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="empty">暂无节点</td></tr>'}</tbody></table></div>
-<div class="card" style="margin-top:16px"><h3 class="section-title">添加远程节点</h3>
-<div class="form-group"><label>名称</label><input id="nodeName" placeholder="例如：香港 1"></div>
+<div class="card"><div class="flex"><p class="hint" style="margin:0">这里管理「有哪些机器」。侧栏「正在管理」决定仪表盘、日志、封禁改的是哪一台。总控密码始终只改本页登录。</p><button class="btn btn-sm" onclick="refreshNodes()">重新检测</button></div>
+<table><thead><tr><th>名称</th><th>类型</th><th>地址</th><th>连接状态</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="empty">暂无节点</td></tr>'}</tbody></table></div>
+<div class="card" style="margin-top:16px"><h3 class="section-title">添加远程 Agent</h3>
+<div class="form-group"><label>名称（用来区分多台，例如：香港 1）</label><input id="nodeName" placeholder="例如：香港 1"></div>
 <div class="form-group"><label>Agent 地址</label><input id="nodeUrl" placeholder="http://IP:10087"></div>
 <div class="form-group"><label>Agent Token</label><input id="nodeToken" placeholder="远程机器安装时打印的 Token"></div>
 <button class="btn btn-primary" onclick="addRemoteNode()">添加</button></div>`);
 }
 async function addRemoteNode(){
   const r=await api('nodes',{method:'POST',body:{name:$('#nodeName').value.trim(),url:$('#nodeUrl').value.trim(),token:$('#nodeToken').value.trim()}});
-  if(r&&r.ok){toast('已添加节点'); page_nodes(); loadNodes();}
+  if(r&&r.ok){
+    const n=r.node||{};
+    toast(n.online?'已添加，连接正常':(n.message||'已添加，但连接失败'), n.online?'success':'error');
+    page_nodes(); loadNodes();
+  }
   else toast(r?.detail||r?.message||'添加失败','error');
 }
+async function refreshNodes(){ toast('正在检测连接'); page_nodes(); loadNodes(); }
 async function removeNode(id){
   if(!confirm('删除这个远程节点？')) return;
   const r=await api('nodes/delete',{method:'POST',body:{id}});
@@ -416,13 +484,12 @@ async function removeNode(id){
   else toast(r?.detail||r?.message||'删除失败','error');
 }
 async function page_password(){
-  setMain(`<h1>修改密码</h1>
+  setMain(`<h1>总控登录密码</h1>
 <div class="card" style="max-width:420px">
-<p class="hint">改完后当前登录会失效，需要用新密码重新登录。密码保存在本机数据目录，重建容器不会丢。</p>
 <div class="form-group"><label>当前密码</label><input id="pwCurrent" type="password" autocomplete="current-password"></div>
 <div class="form-group"><label>新密码</label><input id="pwNew" type="password" autocomplete="new-password" placeholder="至少 8 位"></div>
 <div class="form-group"><label>确认新密码</label><input id="pwConfirm" type="password" autocomplete="new-password"></div>
-<button class="btn btn-primary" onclick="submitPassword()">保存新密码</button>
+<button class="btn btn-primary" onclick="submitPassword()">保存总控密码</button>
 </div>`);
 }
 async function submitPassword(){
@@ -433,8 +500,7 @@ async function submitPassword(){
   else toast(r?.detail||r?.message||'修改失败','error');
 }
 
-loadNodes();
-nav('dashboard');
+loadNodes().then(()=>nav('dashboard'));
 </script>
 </body>
 </html>

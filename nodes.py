@@ -24,13 +24,21 @@ def _store_path() -> Path:
     return Path(NODES_STORE)
 
 
-def _public_node(node: dict) -> dict:
+def _public_node(node: dict, probe: dict | None = None) -> dict:
+    kind = node.get("kind") or "remote"
+    if probe is None:
+        if kind == "local":
+            probe = {"online": True, "status": "online", "message": "本机直连"}
+        else:
+            probe = {"online": False, "status": "unknown", "message": "尚未检测"}
     return {
         "id": node["id"],
         "name": node.get("name") or node["id"],
-        "kind": node.get("kind") or "remote",
+        "kind": kind,
         "url": node.get("url") or "",
-        "online": bool(node.get("online", node.get("kind") == "local")),
+        "online": bool(probe.get("online")),
+        "status": probe.get("status") or ("online" if probe.get("online") else "offline"),
+        "message": probe.get("message") or "",
     }
 
 
@@ -86,8 +94,25 @@ def save_state(state: dict) -> None:
     path.write_text(json.dumps(state, ensure_ascii=False, indent=2))
 
 
+def probe_node(node: dict) -> dict:
+    if (node or {}).get("kind") == "local" or (node or {}).get("id") == "local":
+        return {"online": True, "status": "online", "message": "本机直连"}
+    url = agent_api_url(node.get("url") or "", "/agent/health")
+    headers = {"Authorization": f"Bearer {node.get('token') or ''}"}
+    response = http_request("GET", url, headers=headers, timeout=4)
+    body = response.json() if hasattr(response, "json") else {}
+    if not isinstance(body, dict):
+        body = {}
+    if response.status_code == 200 and body.get("ok"):
+        return {"online": True, "status": "online", "message": "连接正常"}
+    if response.status_code in (401, 403):
+        return {"online": False, "status": "auth", "message": "Token 无效"}
+    detail = str(body.get("message") or body.get("detail") or f"HTTP {response.status_code}")
+    return {"online": False, "status": "offline", "message": detail[:120]}
+
+
 def list_nodes() -> list[dict]:
-    return [_public_node(node) for node in load_state()["nodes"]]
+    return [_public_node(node, probe_node(node)) for node in load_state()["nodes"]]
 
 
 def get_node(node_id: str) -> dict | None:
@@ -112,7 +137,8 @@ def select_node(node_id: str) -> dict:
         raise KeyError(node_id)
     state["current_id"] = node_id
     save_state(state)
-    return _public_node(get_node(node_id) or {"id": node_id, "name": node_id, "kind": "remote", "url": ""})
+    node = get_node(node_id) or {"id": node_id, "name": node_id, "kind": "remote", "url": ""}
+    return _public_node(node, probe_node(node))
 
 
 def add_node(name: str, url: str, token: str) -> dict:
@@ -138,7 +164,7 @@ def add_node(name: str, url: str, token: str) -> dict:
     }
     state["nodes"].append(node)
     save_state(state)
-    return _public_node(node)
+    return _public_node(node, probe_node(node))
 
 
 def delete_node(node_id: str) -> None:

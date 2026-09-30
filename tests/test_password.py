@@ -52,8 +52,9 @@ class PasswordPageTests(unittest.TestCase):
     def test_admin_exposes_password_page(self):
         html = (PROJECT_DIR / "templates" / "index.html").read_text()
         self.assertIn("nav('password')", html)
-        self.assertIn("修改密码", html)
-        self.assertIn("dashboard:2,logs:3,bans:4,autoban:5,pages:6,nodes:7,password:8", html)
+        self.assertIn("总控登录密码", html)
+        self.assertIn("不影响 Agent", html)
+        self.assertIn('data-page="password"', html)
         self.assertIn("api('password'", html)
         source = (PROJECT_DIR / "main.py").read_text()
         self.assertIn('"/api/password"', source)
