@@ -80,7 +80,7 @@ def default_autoban_config():
             }
         ],
         "local_ban": True,
-        "banaction": "iptables-multiport",
+        "banaction": "iptables-allports",
         "chain": "INPUT",
         "cloudflare_ban": False,
         "waf_blacklist": True,
@@ -167,7 +167,7 @@ def normalize_autoban_config(cfg):
         jail_names.add(jail["name"])
     for key in ("enabled", "local_ban", "cloudflare_ban", "waf_blacklist", "cf_real_ip_enabled", "real_ip_recursive"):
         base[key] = bool(base.get(key))
-    base["banaction"] = str(base.get("banaction") or "iptables-multiport").strip()
+    base["banaction"] = str(base.get("banaction") or "iptables-allports").strip()
     base["chain"] = str(base.get("chain") or "INPUT").strip()
     return base
 

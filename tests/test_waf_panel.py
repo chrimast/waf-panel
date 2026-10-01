@@ -202,7 +202,7 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertIn('<label>设置端口</label><input id="abPort"', self.template)
         self.assertIn("c.port||'80,443'", self.template)
         self.assertIn("c.chain||'INPUT'", self.template)
-        self.assertIn("c.banaction==='iptables-multiport'", self.template)
+        self.assertIn("c.banaction==='iptables-allports'", self.template)
         self.assertIn('<select id="abBanaction"', self.template)
         for action in ("iptables-allports", "iptables-multiport", "firewallcmd-ipset", "ufw"):
             self.assertIn(f'<option value="{action}"', self.template)

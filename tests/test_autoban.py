@@ -227,7 +227,7 @@ class AutobanConfigTests(unittest.TestCase):
 
             self.assertEqual(loaded["port"], "80,443")
             self.assertEqual(loaded["chain"], "INPUT")
-            self.assertEqual(loaded["banaction"], "iptables-multiport")
+            self.assertEqual(loaded["banaction"], "iptables-allports")
 
     def test_save_and_load_round_trip_preserves_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -456,12 +456,12 @@ enabled = false
     def test_default_local_firewall_uses_input_chain_and_web_ports(self):
         cfg = default_autoban_config()
         self.assertEqual(cfg["chain"], "INPUT")
-        self.assertEqual(cfg["banaction"], "iptables-multiport")
+        self.assertEqual(cfg["banaction"], "iptables-allports")
         self.assertEqual(cfg["port"], "80,443")
         files = generate_fail2ban_files(cfg)
         self.assertIn("chain = INPUT", files["jail"])
-        self.assertIn("banaction = iptables-multiport", files["jail"])
-        self.assertIn("iptables-multiport[chain=INPUT]", files["jail"])
+        self.assertIn("banaction = iptables-allports", files["jail"])
+        self.assertIn("iptables-allports[chain=INPUT]", files["jail"])
         self.assertNotIn("DOCKER-USER", files["jail"])
 
     def test_waf_blacklist_script_writes_temporary_rule_and_keeps_permanent(self):
