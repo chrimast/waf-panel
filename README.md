@@ -2,7 +2,7 @@
 
 给已经装好 1Panel + OpenResty 的服务器用的 WAF 管理面板。可以管本机，也可以把其他 1Panel 服务器当成节点加进来。
 
-不改 1Panel 程序。自动封禁只写：
+不改 1Panel 程序。自动封禁默认用宿主机 `INPUT` 链 + `iptables-multiport`（80/443），把流量挡在 OpenResty 前面；只写：
 
 ```text
 /etc/fail2ban/jail.d/waf-panel-autoban.local

@@ -23,6 +23,8 @@ from nodes import (
 )
 from autoban import (
     apply_autoban_config,
+    apply_jail_waf_ban,
+    apply_jail_waf_unban,
     fail2ban_jail_status,
     fail2ban_status,
     generate_custom_filter_files,
@@ -30,6 +32,7 @@ from autoban import (
     installed_filter_names,
     load_autoban_config,
     detect_default_logpaths,
+    main_jail_generated,
     missing_jail_filters,
     restart_fail2ban,
     test_filter_definition,
@@ -764,7 +767,7 @@ async def page_save(request: Request):
 async def autoban_config_get():
     cfg = load_autoban_config()
     status = fail2ban_status(cfg.get("jail_name"))
-    return {"config": cfg, "missing_filters": missing_jail_filters(cfg), "status": status, "detected_logpaths": detect_default_logpaths()}
+    return {"config": cfg, "missing_filters": missing_jail_filters(cfg), "status": status, "detected_logpaths": detect_default_logpaths(), "main_jail_generated": main_jail_generated()}
 
 @app.post("/api/autoban_config")
 async def autoban_config_set(request: Request):
@@ -859,7 +862,8 @@ async def autoban_ban(request: Request):
     cfg = load_autoban_config()
     jail = cfg.get("jail_name", "waf-panel-autoban")
     out = subprocess.run(["fail2ban-client", "set", jail, "banip", ip], capture_output=True, text=True)
-    return {"ok": out.returncode == 0, "output": (out.stdout + out.stderr).strip()}
+    merged = apply_jail_waf_ban(ip) if out.returncode == 0 else {"ok": False}
+    return {"ok": out.returncode == 0 and merged.get("ok", False), "output": (out.stdout + out.stderr).strip(), "waf": merged}
 
 @app.post("/api/autoban_unban")
 async def autoban_unban(request: Request):
@@ -869,7 +873,8 @@ async def autoban_unban(request: Request):
     cfg = load_autoban_config()
     jail = cfg.get("jail_name", "waf-panel-autoban")
     out = subprocess.run(["fail2ban-client", "set", jail, "unbanip", ip], capture_output=True, text=True)
-    return {"ok": out.returncode == 0, "output": (out.stdout + out.stderr).strip()}
+    merged = apply_jail_waf_unban(ip)
+    return {"ok": out.returncode == 0 and merged.get("ok", False), "output": (out.stdout + out.stderr).strip(), "waf": merged}
 
 # ── API: Nginx 重载 ───────────────────────────────
 @app.post("/api/reload")

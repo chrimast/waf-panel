@@ -22,6 +22,7 @@ FAIL2BAN_JAIL_LOCAL_PATH = FAIL2BAN_ROOT / "jail.local"
 NGINX_REAL_IP_SNIPPET_PATH = PANEL_DIR / "generated/cloudflare-real-ip.conf"
 WAF_BLACKLIST_SCRIPT = PANEL_DIR / "scripts/fail2ban_waf_blacklist.py"
 WAF_RULES_PATH = WAF_BASE / "rules/ipBlack.json"
+WAF_DB = WAF_BASE / "db/waf"
 PANEL_ROOT = Path(os.environ.get("PANEL_ROOT", "/opt/1panel"))
 V1_OPENRESTY_LOG = "/opt/1panel/apps/openresty/openresty/log/*.log"
 V1_SITE_LOG = "/opt/1panel/apps/openresty/openresty/www/sites/*/log/*.log"
@@ -79,8 +80,8 @@ def default_autoban_config():
             }
         ],
         "local_ban": True,
-        "banaction": "iptables-allports",
-        "chain": "DOCKER-USER",
+        "banaction": "iptables-multiport",
+        "chain": "INPUT",
         "cloudflare_ban": False,
         "waf_blacklist": True,
         "cloudflare_email": "",
@@ -166,8 +167,8 @@ def normalize_autoban_config(cfg):
         jail_names.add(jail["name"])
     for key in ("enabled", "local_ban", "cloudflare_ban", "waf_blacklist", "cf_real_ip_enabled", "real_ip_recursive"):
         base[key] = bool(base.get(key))
-    base["banaction"] = str(base.get("banaction") or "iptables-allports").strip()
-    base["chain"] = str(base.get("chain") or "DOCKER-USER").strip()
+    base["banaction"] = str(base.get("banaction") or "iptables-multiport").strip()
+    base["chain"] = str(base.get("chain") or "INPUT").strip()
     return base
 
 
@@ -252,6 +253,10 @@ def generate_custom_filter_files(cfg):
 def installed_filter_names(directory=FAIL2BAN_FILTER_PATH.parent):
     directory = Path(directory)
     return {path.stem for path in directory.glob("*.conf")} if directory.exists() else set()
+
+
+def main_jail_generated():
+    return FAIL2BAN_JAIL_PATH.exists() and FAIL2BAN_FILTER_PATH.exists()
 
 
 def missing_jail_filters(cfg, installed=None):
@@ -555,66 +560,180 @@ def fail2ban_jail_status(jail_name):
     }
 
 
-WAF_BLACKLIST_SCRIPT_CONTENT = r'''#!/usr/bin/env python3
-import json
-import os
-import subprocess
-import sys
-from pathlib import Path
 
-WAF_RULES_PATH = Path(os.environ.get("WAF_BASE", "/opt/1panel/apps/openresty/openresty/1pwaf/data")) / "rules/ipBlack.json"
-RELOAD_CMD = ["docker", "exec", os.environ.get("OR_CONTAINER", "1Panel-openresty-bGB2"), "/usr/local/openresty/nginx/sbin/nginx", "-s", "reload"]
+def _reload_openresty():
+    subprocess.run(
+        ["docker", "exec", OPENRESTY_CONTAINER, "/usr/local/openresty/nginx/sbin/nginx", "-s", "reload"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
-def load_rules():
+
+def _rule_value(rule):
+    if isinstance(rule, str):
+        return rule
+    if not isinstance(rule, dict):
+        return ""
+    typ = rule.get("type")
+    if typ in ("ipv4", "ipv6"):
+        return rule.get(typ, "")
+    if typ == "ipGroup":
+        return rule.get("ipGroup", "")
+    if typ == "ipArr":
+        return f"{rule.get('ipStart', '')}-{rule.get('ipEnd', '')}"
+    return rule.get("ipv4") or rule.get("ipv6") or rule.get("ipGroup") or ""
+
+
+def _is_jail_temporary_rule(rule, ip=None):
+    if not isinstance(rule, dict) or rule.get("name") != "waf-panel-temporary":
+        return False
+    if "source=jail" not in str(rule.get("description") or ""):
+        return False
+    return ip is None or _rule_value(rule) == ip
+
+
+def _make_ip_object(ip):
+    if ":" in ip:
+        return {"name": "waf-panel-temporary", "state": "on", "type": "ipv6", "ipv4": "", "ipv6": ip, "ipStart": "", "ipEnd": "", "ipGroup": "", "description": ""}
+    if "/" in ip:
+        return {"name": "waf-panel-temporary", "state": "on", "type": "ipGroup", "ipv4": "", "ipv6": "", "ipStart": "", "ipEnd": "", "ipGroup": ip, "description": ""}
+    return {"name": "waf-panel-temporary", "state": "on", "type": "ipv4", "ipv4": ip, "ipv6": "", "ipStart": "", "ipEnd": "", "ipGroup": "", "description": ""}
+
+
+def _load_waf_rules():
     if not WAF_RULES_PATH.exists():
         return {"rules": []}
-    with open(WAF_RULES_PATH) as f:
-        data = json.load(f)
+    data = json.loads(WAF_RULES_PATH.read_text() or "{}")
     if not isinstance(data, dict):
         data = {"rules": data if isinstance(data, list) else []}
     data.setdefault("rules", [])
     return data
 
-def value(rule):
-    if isinstance(rule, str): return rule
-    if not isinstance(rule, dict): return ""
-    typ = rule.get("type")
-    if typ in ("ipv4", "ipv6"): return rule.get(typ, "")
-    if typ == "ipGroup": return rule.get("ipGroup", "")
-    if typ == "ipArr": return f"{rule.get('ipStart','')}-{rule.get('ipEnd','')}"
-    return rule.get("ipv4") or rule.get("ipv6") or rule.get("ipGroup") or ""
 
-def make_rule(ip):
-    if ":" in ip:
-        return {"name":"fail2ban","state":"on","type":"ipv6","ipv4":"","ipv6":ip,"ipStart":"","ipEnd":"","ipGroup":"","description":"fail2ban auto ban"}
-    if "/" in ip:
-        return {"name":"fail2ban","state":"on","type":"ipGroup","ipv4":"","ipv6":"","ipStart":"","ipEnd":"","ipGroup":ip,"description":"fail2ban auto ban"}
-    return {"name":"fail2ban","state":"on","type":"ipv4","ipv4":ip,"ipv6":"","ipStart":"","ipEnd":"","ipGroup":"","description":"fail2ban auto ban"}
-
-def save_rules(data):
+def _save_waf_rules(data, reload=True):
+    WAF_RULES_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = WAF_RULES_PATH.with_suffix(".tmp")
-    with open(tmp, "w") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
     os.replace(tmp, WAF_RULES_PATH)
-    subprocess.run(RELOAD_CMD, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if reload:
+        _reload_openresty()
+
+
+def _ensure_ip_id(ip):
+    import sqlite3
+    path = Path(WAF_DB) / "ips.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path)
+    try:
+        db.execute("CREATE TABLE IF NOT EXISTS ips (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL)")
+        row = db.execute("SELECT id FROM ips WHERE value=?", (ip,)).fetchone()
+        if row:
+            return row[0]
+        cur = db.execute("INSERT INTO ips(value) VALUES (?)", (ip,))
+        db.commit()
+        return cur.lastrowid
+    finally:
+        db.close()
+
+
+def _insert_block_record(ip, bantime):
+    import sqlite3
+    ip_id = _ensure_ip_id(ip)
+    db = sqlite3.connect(Path(WAF_DB) / "block_ips.db")
+    try:
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS block_ips (id INTEGER PRIMARY KEY AUTOINCREMENT, ip_id INTEGER DEFAULT 0, is_block INTEGER DEFAULT 0, blocking_time INTEGER DEFAULT 0, attack_log_id INTEGER DEFAULT 0, create_date DATETIME)"
+        )
+        cur = db.execute(
+            "INSERT INTO block_ips (ip_id, is_block, blocking_time, attack_log_id, create_date) VALUES (?, 1, ?, 0, datetime('now', 'localtime'))",
+            (ip_id, int(bantime)),
+        )
+        db.commit()
+        return cur.lastrowid
+    finally:
+        db.close()
+
+
+def _delete_block_record(block_id):
+    import sqlite3
+    if not block_id:
+        return
+    path = Path(WAF_DB) / "block_ips.db"
+    if not path.exists():
+        return
+    db = sqlite3.connect(path)
+    try:
+        db.execute("DELETE FROM block_ips WHERE id=?", (int(block_id),))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _block_id_from_rule(rule):
+    marker = "block_id="
+    description = str((rule or {}).get("description") or "")
+    try:
+        return int(description.split(marker, 1)[1].split()[0])
+    except (IndexError, ValueError):
+        return 0
+
+
+def apply_jail_waf_ban(ip):
+    import time
+    ip = str(ip or "").strip()
+    if not ip:
+        return {"ok": False, "message": "IP 不能为空"}
+    cfg = load_autoban_config()
+    bantime = max(1, int(cfg.get("bantime") or 3600))
+    data = _load_waf_rules()
+    existing = next((rule for rule in data["rules"] if _is_jail_temporary_rule(rule, ip)), None)
+    block_id = _block_id_from_rule(existing) if existing else 0
+    if not block_id:
+        block_id = _insert_block_record(ip, bantime)
+    expires_at = int(time.time()) + bantime
+    rule = _make_ip_object(ip)
+    rule["description"] = f"temporary-ban expires_at={expires_at} source=jail block_id={int(block_id)}"
+    data["rules"] = [item for item in data["rules"] if not _is_jail_temporary_rule(item, ip)]
+    data["rules"].append(rule)
+    _save_waf_rules(data)
+    return {"ok": True, "block_id": int(block_id), "expires_at": expires_at}
+
+
+def apply_jail_waf_unban(ip):
+    ip = str(ip or "").strip()
+    if not ip:
+        return {"ok": False, "message": "IP 不能为空"}
+    data = _load_waf_rules()
+    removed = [rule for rule in data["rules"] if _is_jail_temporary_rule(rule, ip)]
+    if not removed:
+        return {"ok": True, "removed": 0}
+    data["rules"] = [rule for rule in data["rules"] if not _is_jail_temporary_rule(rule, ip)]
+    _save_waf_rules(data)
+    for rule in removed:
+        _delete_block_record(_block_id_from_rule(rule))
+    return {"ok": True, "removed": len(removed)}
+
+
+WAF_BLACKLIST_SCRIPT_CONTENT = r"""#!/usr/bin/env python3
+# Jail result writes {"name": "waf-panel-temporary"}
+# description includes source=jail expires_at=... block_id=...
+# INSERT INTO block_ips on ban; unban deletes only jail temporary rules
+import os
+import sys
+from pathlib import Path
+
+ROOT = Path(os.environ.get("WAF_PANEL_HOME", Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(ROOT))
+from autoban import apply_jail_waf_ban, apply_jail_waf_unban
 
 def main():
     if len(sys.argv) != 3 or sys.argv[1] not in ("ban", "unban"):
         print("usage: fail2ban_waf_blacklist.py ban|unban IP", file=sys.stderr)
         return 2
     op, ip = sys.argv[1], sys.argv[2]
-    data = load_rules()
-    if op == "ban":
-        if ip not in {value(r) for r in data["rules"]}:
-            data["rules"].append(make_rule(ip))
-            save_rules(data)
-    else:
-        new_rules = [r for r in data["rules"] if value(r) != ip]
-        if len(new_rules) != len(data["rules"]):
-            data["rules"] = new_rules
-            save_rules(data)
-    return 0
+    result = apply_jail_waf_ban(ip) if op == "ban" else apply_jail_waf_unban(ip)
+    return 0 if result.get("ok") else 1
 
 if __name__ == "__main__":
     raise SystemExit(main())
-'''
+"""

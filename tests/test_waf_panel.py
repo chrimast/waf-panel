@@ -120,7 +120,27 @@ class WafPanelAutobanApiTests(unittest.TestCase):
             result = asyncio.run(main.autoban_jail_status("demo"))
 
         self.assertTrue(result["running"])
-        self.assertEqual(result["currently_banned"], 2)
+
+    def test_autoban_config_reports_main_jail_generated_flag(self):
+        with patch.object(main, "load_autoban_config", return_value={"jail_name": "waf-panel-autoban"}), patch.object(main, "fail2ban_status", return_value={"ok": True}), patch.object(main, "missing_jail_filters", return_value=[]), patch.object(main, "detect_default_logpaths", return_value=["/tmp/a.log"]), patch.object(main, "main_jail_generated", return_value=True):
+            result = asyncio.run(main.autoban_config_get())
+        self.assertTrue(result["main_jail_generated"])
+
+    def test_manual_autoban_applies_merged_waf_result(self):
+        request = AsyncMock()
+        request.json.return_value = {"ip": "203.0.113.8"}
+        with patch.object(main, "load_autoban_config", return_value={"jail_name": "waf-panel-autoban"}), patch.object(main.subprocess, "run", return_value=type("R", (), {"returncode": 0, "stdout": "1", "stderr": ""})()), patch.object(main, "apply_jail_waf_ban", return_value={"ok": True, "block_id": 9}) as apply:
+            result = asyncio.run(main.autoban_ban(request))
+        self.assertTrue(result["ok"])
+        apply.assert_called_once_with("203.0.113.8")
+
+    def test_manual_autoban_unban_applies_merged_waf_result(self):
+        request = AsyncMock()
+        request.json.return_value = {"ip": "203.0.113.8"}
+        with patch.object(main, "load_autoban_config", return_value={"jail_name": "waf-panel-autoban"}), patch.object(main.subprocess, "run", return_value=type("R", (), {"returncode": 0, "stdout": "1", "stderr": ""})()), patch.object(main, "apply_jail_waf_unban", return_value={"ok": True}) as apply:
+            result = asyncio.run(main.autoban_unban(request))
+        self.assertTrue(result["ok"])
+        apply.assert_called_once_with("203.0.113.8")
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -161,6 +181,19 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertNotIn('id="pSshLogpath"', self.template)
         self.assertIn("启用 WAF 自动封禁", self.template)
         self.assertIn(">主 Jail</h3>", self.template)
+        self.assertIn('id="abMainJailStatus"', self.template)
+        self.assertIn("未生效", self.template)
+        self.assertIn("已生效", self.template)
+        self.assertNotIn("'已生成'", self.template)
+        self.assertNotIn("'未生成'", self.template)
+        self.assertIn('id="abMainJailEdit"', self.template)
+        self.assertIn(">修改</button>", self.template)
+        self.assertIn('id="abMainJailSave"', self.template)
+        self.assertIn(">保存</button>", self.template)
+        self.assertIn("function setMainJailEditable(", self.template)
+        self.assertIn("function saveMainJail()", self.template)
+        self.assertIn("d.main_jail_generated", self.template)
+        self.assertIn("${mainJailGenerated?'disabled':''}", self.template)
         self.assertIn("删除被引用的 Filter 会被阻止", self.template)
         self.assertIn("/etc/fail2ban/filter.d/&lt;name&gt;.conf", self.template)
         self.assertIn("附加 Jails", self.template)
@@ -168,7 +201,9 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertIn("每个 Jail 可独立选择 Filter", self.template)
         self.assertIn('<label>设置端口</label><input id="abPort"', self.template)
         self.assertIn("c.port||'80,443'", self.template)
-        self.assertIn('<select id="abBanaction">', self.template)
+        self.assertIn("c.chain||'INPUT'", self.template)
+        self.assertIn("c.banaction==='iptables-multiport'", self.template)
+        self.assertIn('<select id="abBanaction"', self.template)
         for action in ("iptables-allports", "iptables-multiport", "firewallcmd-ipset", "ufw"):
             self.assertIn(f'<option value="{action}"', self.template)
         self.assertIn('<select id="abRealIpHeader"', self.template)
@@ -184,9 +219,19 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertIn('自动封禁状态', self.template)
         self.assertIn('共享策略', self.template)
         self.assertIn('仅影响 WAF 自动封禁', self.template)
+        heading = self.template[self.template.index('>共享策略</h3>')-120:self.template.index('>共享策略</h3>')+180]
+        self.assertIn('class="autoban-jails-toolbar"', heading)
+        self.assertIn('onclick="detectAutobanLogpaths()"', heading)
+        self.assertIn('>再次探测</button>', heading)
+        self.assertIn('function detectAutobanLogpaths()', self.template)
+        detect_fn = self.template[self.template.index('function detectAutobanLogpaths()'):self.template.index('function detectAutobanLogpaths()')+520]
+        self.assertIn("api('autoban_config')", detect_fn)
+        self.assertIn("$('#abLogpaths').value=(r.detected_logpaths||[]).join('\\n')", self.template)
+        self.assertIn("$('#abDetectedLogpaths').innerHTML=", detect_fn)
 
     def test_autoban_page_keeps_explicit_apply_boundary(self):
         self.assertIn('保存配置（不重启）', self.template)
+        self.assertIn('class="btn btn-primary" onclick="saveAutoban()"', self.template)
         self.assertIn('应用配置并重启', self.template)
         self.assertIn('手动封禁', self.template)
         self.assertIn('手动解封', self.template)

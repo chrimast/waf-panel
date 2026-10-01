@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -225,6 +226,8 @@ class AutobanConfigTests(unittest.TestCase):
             loaded = load_autoban_config(path)
 
             self.assertEqual(loaded["port"], "80,443")
+            self.assertEqual(loaded["chain"], "INPUT")
+            self.assertEqual(loaded["banaction"], "iptables-multiport")
 
     def test_save_and_load_round_trip_preserves_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -416,6 +419,18 @@ enabled = false
         self.assertIn("filter = nginx-cc", managed)
         self.assertIn("bantime = 900", managed)
 
+    def test_main_jail_generated_is_false_until_managed_files_exist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self._apply_paths(root):
+                self.assertFalse(autoban.main_jail_generated())
+                (root / "jail.d").mkdir(parents=True)
+                (root / "filter.d").mkdir(parents=True)
+                (root / "jail.d/waf-panel-autoban.local").write_text("[waf-panel-autoban]\n")
+                self.assertFalse(autoban.main_jail_generated())
+                (root / "filter.d/waf-panel-autoban.conf").write_text("[Definition]\n")
+                self.assertTrue(autoban.main_jail_generated())
+
     def test_detect_default_logpaths_v1_and_v2(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -438,6 +453,77 @@ enabled = false
         self.assertTrue(cfg["logpaths"])
         self.assertTrue(any("openresty/log" in p or "www/sites" in p for p in cfg["logpaths"]))
 
+    def test_default_local_firewall_uses_input_chain_and_web_ports(self):
+        cfg = default_autoban_config()
+        self.assertEqual(cfg["chain"], "INPUT")
+        self.assertEqual(cfg["banaction"], "iptables-multiport")
+        self.assertEqual(cfg["port"], "80,443")
+        files = generate_fail2ban_files(cfg)
+        self.assertIn("chain = INPUT", files["jail"])
+        self.assertIn("banaction = iptables-multiport", files["jail"])
+        self.assertIn("iptables-multiport[chain=INPUT]", files["jail"])
+        self.assertNotIn("DOCKER-USER", files["jail"])
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_waf_blacklist_script_writes_temporary_rule_and_keeps_permanent(self):
+        source = autoban.WAF_BLACKLIST_SCRIPT_CONTENT
+        self.assertIn('name": "waf-panel-temporary"', source)
+        self.assertIn("source=jail", source)
+        self.assertIn("expires_at=", source)
+        self.assertIn("block_id=", source)
+        self.assertIn("INSERT INTO block_ips", source)
+        self.assertNotIn('name":"fail2ban"', source.replace(" ", ""))
+
+    def test_apply_jail_ban_writes_temporary_waf_rule_and_block_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rules = root / "ipBlack.json"
+            ips = root / "ips.db"
+            blocks = root / "block_ips.db"
+            rules.write_text('{"rules":[{"name":"keep","state":"on","type":"ipv4","ipv4":"203.0.113.9","ipv6":"","ipStart":"","ipEnd":"","ipGroup":"","description":"permanent"}]}')
+            import sqlite3
+            db = sqlite3.connect(ips)
+            db.execute("CREATE TABLE ips (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL)")
+            db.execute("INSERT INTO ips(value) VALUES ('203.0.113.8')")
+            db.commit(); db.close()
+            db = sqlite3.connect(blocks)
+            db.execute("CREATE TABLE block_ips (id INTEGER PRIMARY KEY AUTOINCREMENT, ip_id INTEGER DEFAULT 0, is_block INTEGER DEFAULT 0, blocking_time INTEGER DEFAULT 0, attack_log_id INTEGER DEFAULT 0, create_date DATETIME)")
+            db.commit(); db.close()
+            with patch.object(autoban, "WAF_RULES_PATH", rules), patch.object(autoban, "WAF_DB", root), patch.object(autoban, "load_autoban_config", return_value={"bantime": 1800}), patch.object(autoban, "_reload_openresty", return_value=None):
+                banned = autoban.apply_jail_waf_ban("203.0.113.8")
+                data = json.loads(rules.read_text())
+                names = [item["name"] for item in data["rules"]]
+                temp = next(item for item in data["rules"] if item["name"] == "waf-panel-temporary")
+                db = sqlite3.connect(blocks)
+                rows = db.execute("SELECT ip_id, is_block, blocking_time FROM block_ips").fetchall()
+                db.close()
+            self.assertTrue(banned["ok"])
+            self.assertIn("keep", names)
+            self.assertIn("waf-panel-temporary", names)
+            self.assertIn("source=jail", temp["description"])
+            self.assertIn("expires_at=", temp["description"])
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0][2], 1800)
+
+    def test_apply_jail_unban_removes_only_temporary_jail_rule(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rules = root / "ipBlack.json"
+            blocks = root / "block_ips.db"
+            rules.write_text(json.dumps({"rules":[
+                {"name":"keep","state":"on","type":"ipv4","ipv4":"203.0.113.8","ipv6":"","ipStart":"","ipEnd":"","ipGroup":"","description":"permanent"},
+                {"name":"waf-panel-temporary","state":"on","type":"ipv4","ipv4":"203.0.113.8","ipv6":"","ipStart":"","ipEnd":"","ipGroup":"","description":"temporary-ban expires_at=9999999999 source=jail block_id=7"},
+            ]}))
+            import sqlite3
+            db = sqlite3.connect(blocks)
+            db.execute("CREATE TABLE block_ips (id INTEGER PRIMARY KEY AUTOINCREMENT, ip_id INTEGER DEFAULT 0, is_block INTEGER DEFAULT 0, blocking_time INTEGER DEFAULT 0, attack_log_id INTEGER DEFAULT 0, create_date DATETIME)")
+            db.execute("INSERT INTO block_ips(id, ip_id, is_block, blocking_time, attack_log_id, create_date) VALUES (7, 1, 1, 1800, 0, datetime('now'))")
+            db.commit(); db.close()
+            with patch.object(autoban, "WAF_RULES_PATH", rules), patch.object(autoban, "WAF_DB", root), patch.object(autoban, "_reload_openresty", return_value=None):
+                result = autoban.apply_jail_waf_unban("203.0.113.8")
+                data = json.loads(rules.read_text())
+                db = sqlite3.connect(blocks)
+                left = db.execute("SELECT COUNT(*) FROM block_ips").fetchone()[0]
+                db.close()
+            self.assertTrue(result["ok"])
+            self.assertEqual([item["name"] for item in data["rules"]], ["keep"])
+            self.assertEqual(left, 0)
