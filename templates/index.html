@@ -218,7 +218,9 @@ function scopeBar(kind){
   return `<div class="scope-bar ${cls}" id="scopeBar"><span class="scope-label">正在管理</span><span class="scope-name">${escapeHtml(n.name||n.id)}</span><span class="badge ${n.kind==='local'?'badge-success':'badge-warn'}">${nodeKindLabel(n)}</span>${nodeStatusBadge(n)}<span class="scope-note">${extra}</span></div>`;
 }
 function setMain(h){$('#main').innerHTML=scopeBar(_currentPage)+h}
-function nav(page){$$('.nav-link').forEach(a=>a.classList.remove('active'));const l=$(`.nav-link[data-page="${page}"]`);if(l)l.classList.add('active');_currentPage=page;window['page_'+page]()}
+function pageFromHash(){const page=(location.hash||'').replace(/^#/,'');return ['dashboard','logs','bans','autoban','pages','nodes','password'].includes(page)?page:'dashboard'}
+function nav(page,skipHash){if(!['dashboard','logs','bans','autoban','pages','nodes','password'].includes(page))page='dashboard';$$('.nav-link').forEach(a=>a.classList.remove('active'));const l=$(`.nav-link[data-page="${page}"]`);if(l)l.classList.add('active');_currentPage=page;if(!skipHash&&location.hash.replace(/^#/,'')!==page)location.hash=page;window['page_'+page]()}
+window.addEventListener('hashchange',()=>{const page=pageFromHash();if(page!==_currentPage)nav(page,true)})
 function escapeHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function ipRuleValue(rule){if(typeof rule==='string')return rule;if(!rule||typeof rule!=='object')return '';if(rule.type==='ipv4')return rule.ipv4||'';if(rule.type==='ipv6')return rule.ipv6||'';if(rule.type==='ipGroup')return rule.ipGroup||'';if(rule.type==='ipArr')return `${rule.ipStart||''}-${rule.ipEnd||''}`;return rule.ipv4||rule.ipv6||rule.ipGroup||''}
 function ipRuleState(rule){if(!rule||typeof rule==='string')return 'on';return rule.state==='off'?'off':'on'}
@@ -504,7 +506,7 @@ async function submitPassword(){
   else toast(r?.detail||r?.message||'修改失败','error');
 }
 
-loadNodes().then(()=>nav('dashboard'));
+loadNodes().then(()=>nav(pageFromHash()));
 </script>
 </body>
 </html>

@@ -88,8 +88,8 @@ class AutobanConfigTests(unittest.TestCase):
             "cf_real_ip_ranges": ["203.0.113.0/24", "2001:db8::/32"],
             "real_ip_header": "CF-Connecting-IP",
             "jails": [
-                {"name": "docker-nginx-cc", "enabled": True, "filter": "nginx-cc", "maxretry": 5, "findtime": 600, "bantime": 3600},
-                {"name": "docker-nginx-badbots", "enabled": False, "filter": "apache-badbots", "maxretry": 2, "findtime": 600, "bantime": 3600},
+                {"name": "autoban-nginx-cc", "enabled": True, "filter": "nginx-cc", "maxretry": 5, "findtime": 600, "bantime": 3600},
+                {"name": "autoban-nginx-badbots", "enabled": False, "filter": "apache-badbots", "maxretry": 2, "findtime": 600, "bantime": 3600},
             ],
         })
 
@@ -98,8 +98,8 @@ class AutobanConfigTests(unittest.TestCase):
         self.assertIn("set_real_ip_from 203.0.113.0/24;", files["nginx_real_ip"])
         self.assertIn("set_real_ip_from 2001:db8::/32;", files["nginx_real_ip"])
         self.assertIn("real_ip_header CF-Connecting-IP;", files["nginx_real_ip"])
-        self.assertIn("[docker-nginx-cc]", files["jail_local"])
-        self.assertIn("[docker-nginx-badbots]", files["jail_local"])
+        self.assertIn("[autoban-nginx-cc]", files["jail_local"])
+        self.assertIn("[autoban-nginx-badbots]", files["jail_local"])
         self.assertIn("enabled = false", files["jail_local"])
         self.assertIn("filter = nginx-cc", files["jail_local"])
         self.assertIn("filter = apache-badbots", files["jail_local"])
@@ -274,6 +274,39 @@ enabled = false
         self.assertIn("^<HOST> .* HTTP.* (403|429) .*$", custom_filter["failregex"])
         self.assertIn("robots", custom_filter["ignoreregex"])
 
+    def test_default_additional_jails_use_autoban_prefix(self):
+        names = [jail["name"] for jail in default_autoban_config()["jails"]]
+
+        self.assertEqual(names, [
+            "autoban-nginx-cc",
+            "autoban-nginx-badbots",
+            "autoban-nginx-botsearch",
+            "autoban-nginx-http-auth",
+            "autoban-nginx-limit-req",
+            "autoban-php-url-fopen",
+        ])
+        self.assertTrue(all(name.startswith("autoban-") for name in names))
+        self.assertFalse(any(name.startswith("docker-") for name in names))
+
+    def test_load_renames_legacy_docker_jail_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "autoban.json"
+            path.write_text(json.dumps({
+                "jails": [
+                    {"name": "docker-nginx-cc", "enabled": True, "filter": "nginx-cc"},
+                    {"name": "docker-php-url-fopen", "enabled": False, "filter": "php-url-fopen"},
+                    {"name": "custom-app", "enabled": True, "filter": "nginx-cc"},
+                ]
+            }))
+
+            loaded = load_autoban_config(path)
+            persisted = json.loads(path.read_text())
+
+        names = [jail["name"] for jail in loaded["jails"]]
+        self.assertEqual(names, ["autoban-nginx-cc", "autoban-php-url-fopen", "custom-app"])
+        self.assertNotIn("docker-nginx-cc", names)
+        self.assertEqual([jail["name"] for jail in persisted["jails"]], names)
+
     def test_generate_custom_filter_files_renders_definition(self):
         cfg = default_autoban_config()
         cfg["custom_filters"] = [{
@@ -343,7 +376,7 @@ enabled = false
                 path.write_text(f"original-{index}")
             save_autoban_config(default_autoban_config(), root / "autoban.json")
             cfg = default_autoban_config()
-            cfg["jails"] = [{"name": "docker-nginx-cc", "enabled": True, "filter": "nginx-cc"}]
+            cfg["jails"] = [{"name": "autoban-nginx-cc", "enabled": True, "filter": "nginx-cc"}]
 
             with self._apply_paths(root), patch.object(autoban.subprocess, "run", return_value=Mock(returncode=1, stdout="", stderr="invalid")):
                 with self.assertRaisesRegex(RuntimeError, "invalid"):
@@ -367,7 +400,7 @@ enabled = false
                 path.write_text(f"original-{index}")
             save_autoban_config(default_autoban_config(), root / "autoban.json")
             cfg = default_autoban_config()
-            cfg["jails"] = [{"name": "docker-nginx-cc", "enabled": True, "filter": "nginx-cc"}]
+            cfg["jails"] = [{"name": "autoban-nginx-cc", "enabled": True, "filter": "nginx-cc"}]
 
             with self._apply_paths(root), patch.object(autoban, "ensure_waf_blacklist_script", side_effect=OSError("disk error")):
                 with self.assertRaisesRegex(RuntimeError, "disk error"):
@@ -408,14 +441,14 @@ enabled = false
     def test_generated_managed_jails_include_main_and_json_jails(self):
         cfg = default_autoban_config()
         cfg["jails"] = [
-            {"name": "docker-nginx-cc", "enabled": True, "filter": "nginx-cc", "maxretry": 4, "findtime": 300, "bantime": 900}
+            {"name": "autoban-nginx-cc", "enabled": True, "filter": "nginx-cc", "maxretry": 4, "findtime": 300, "bantime": 900}
         ]
 
         managed = generate_fail2ban_files(cfg)["managed_jails"]
 
         self.assertIn("[waf-panel-autoban]", managed)
         self.assertIn("filter = waf-panel-autoban", managed)
-        self.assertIn("[docker-nginx-cc]", managed)
+        self.assertIn("[autoban-nginx-cc]", managed)
         self.assertIn("filter = nginx-cc", managed)
         self.assertIn("bantime = 900", managed)
 

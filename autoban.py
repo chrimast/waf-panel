@@ -100,25 +100,59 @@ def default_autoban_config():
             "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
         ],
         "jails": [
-            {"name": "docker-nginx-cc", "enabled": True, "filter": "nginx-cc", "maxretry": 5, "findtime": 600, "bantime": 3600},
-            {"name": "docker-nginx-badbots", "enabled": False, "filter": "apache-badbots", "maxretry": 2, "findtime": 600, "bantime": 3600},
-            {"name": "docker-nginx-botsearch", "enabled": False, "filter": "nginx-botsearch", "maxretry": 5, "findtime": 600, "bantime": 3600},
-            {"name": "docker-nginx-http-auth", "enabled": False, "filter": "nginx-http-auth", "maxretry": 5, "findtime": 600, "bantime": 3600},
-            {"name": "docker-nginx-limit-req", "enabled": False, "filter": "nginx-limit-req", "maxretry": 5, "findtime": 600, "bantime": 3600},
-            {"name": "docker-php-url-fopen", "enabled": False, "filter": "php-url-fopen", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "autoban-nginx-cc", "enabled": True, "filter": "nginx-cc", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "autoban-nginx-badbots", "enabled": False, "filter": "apache-badbots", "maxretry": 2, "findtime": 600, "bantime": 3600},
+            {"name": "autoban-nginx-botsearch", "enabled": False, "filter": "nginx-botsearch", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "autoban-nginx-http-auth", "enabled": False, "filter": "nginx-http-auth", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "autoban-nginx-limit-req", "enabled": False, "filter": "nginx-limit-req", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "autoban-php-url-fopen", "enabled": False, "filter": "php-url-fopen", "maxretry": 5, "findtime": 600, "bantime": 3600},
         ],
     }
+
+
+LEGACY_JAIL_RENAMES = {
+    "docker-nginx-cc": "autoban-nginx-cc",
+    "docker-nginx-badbots": "autoban-nginx-badbots",
+    "docker-nginx-botsearch": "autoban-nginx-botsearch",
+    "docker-nginx-http-auth": "autoban-nginx-http-auth",
+    "docker-nginx-limit-req": "autoban-nginx-limit-req",
+    "docker-php-url-fopen": "autoban-php-url-fopen",
+}
+
+
+def _rename_legacy_jails(jails):
+    renamed = False
+    used = {str(item.get("name") or "").strip() for item in jails if isinstance(item, dict)}
+    for item in jails:
+        if not isinstance(item, dict):
+            continue
+        old = str(item.get("name") or "").strip()
+        new = LEGACY_JAIL_RENAMES.get(old)
+        if not new or new == old:
+            continue
+        if new in used:
+            continue
+        item["name"] = new
+        used.discard(old)
+        used.add(new)
+        renamed = True
+    return renamed
 
 
 def load_autoban_config(path=None):
     cfg = default_autoban_config()
     path = Path(path or AUTOBAN_CONFIG_PATH)
+    persist = False
     if path.exists():
         with open(path) as f:
             loaded = json.load(f)
         if isinstance(loaded, dict):
+            persist = _rename_legacy_jails(_as_list(loaded.get("jails")))
             cfg.update(loaded)
-    return normalize_autoban_config(cfg)
+    cfg = normalize_autoban_config(cfg)
+    if persist:
+        save_autoban_config(cfg, path)
+    return cfg
 
 
 def save_autoban_config(cfg, path=None):
@@ -148,7 +182,9 @@ def normalize_autoban_config(cfg):
     base["ignore_ips"] = [str(x).strip() for x in _as_list(base.get("ignore_ips")) if str(x).strip()]
     base["cf_real_ip_ranges"] = [str(x).strip() for x in _as_list(base.get("cf_real_ip_ranges")) if str(x).strip()]
     base["custom_filters"] = [_normalize_custom_filter(x) for x in _as_list(base.get("custom_filters")) if isinstance(x, dict)]
-    base["jails"] = [_normalize_jail(x) for x in _as_list(base.get("jails")) if isinstance(x, dict)]
+    jails = [x for x in _as_list(base.get("jails")) if isinstance(x, dict)]
+    _rename_legacy_jails(jails)
+    base["jails"] = [_normalize_jail(x) for x in jails]
     filter_names = set()
     for item in base["custom_filters"]:
         if item["name"] in filter_names:

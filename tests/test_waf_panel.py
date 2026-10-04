@@ -151,6 +151,14 @@ class WafPanelTemplateTests(unittest.TestCase):
     def setUpClass(cls):
         cls.template = (PROJECT_DIR / "templates" / "index.html").read_text()
 
+    def test_spa_restores_current_page_from_hash_on_reload(self):
+        self.assertIn("function pageFromHash()", self.template)
+        self.assertIn("location.hash", self.template)
+        self.assertIn("loadNodes().then(()=>nav(pageFromHash()))", self.template)
+        self.assertNotIn("loadNodes().then(()=>nav('dashboard'))", self.template)
+        self.assertIn("addEventListener('hashchange'", self.template)
+        self.assertIn("['dashboard','logs','bans','autoban','pages','nodes','password']", self.template)
+
     def test_dashboard_integrates_map_and_geo_controls(self):
         self.assertIn('id="dashboardMap"', self.template)
         self.assertIn('id="geoAction"', self.template)

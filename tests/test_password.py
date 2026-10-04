@@ -61,5 +61,20 @@ class PasswordPageTests(unittest.TestCase):
         self.assertIn("not path.startswith(\"/api/password\")", source)
 
 
+class SessionCookieTests(unittest.TestCase):
+    def test_login_cookie_is_not_bound_to_client_ip(self):
+        import config
+        token_a = config.auth_make_token("203.0.113.9")
+        token_b = config.auth_make_token("198.51.100.10")
+        self.assertTrue(config.auth_verify_token(token_a))
+        self.assertTrue(config.auth_verify_token(token_b))
+        decoded = __import__("base64").urlsafe_b64decode(token_a.encode()).decode()
+        self.assertNotIn("203.0.113.9", decoded)
+        source = (PROJECT_DIR / "main.py").read_text()
+        self.assertIn('samesite="lax"', source)
+        self.assertIn("httponly=True", source)
+        self.assertIn("expires=", source)
+
+
 if __name__ == "__main__":
     unittest.main()
