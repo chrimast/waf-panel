@@ -65,6 +65,14 @@ class InstallerContractTests(unittest.TestCase):
         self.assertNotIn("docker-compose.yml", self.source)
         self.assertNotIn("nginx.conf", self.source)
 
+    def test_installer_copies_autoban_with_renamed_jails(self):
+        self.assertIn("autoban.py", self.source)
+        autoban = (PROJECT_DIR / "autoban.py").read_text()
+        self.assertIn('"name": "autoban-nginx-cc"', autoban)
+        self.assertIn('"name": "autoban-php-url-fopen"', autoban)
+        self.assertNotIn('"name": "docker-nginx-cc"', autoban)
+        self.assertNotIn('"name": "docker-php-url-fopen"', autoban)
+
 
     def test_docker_contract(self):
         compose = (PROJECT_DIR / "docker-compose.yml").read_text()
