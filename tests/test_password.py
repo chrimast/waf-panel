@@ -51,11 +51,14 @@ class PasswordStoreTests(unittest.TestCase):
 class PasswordPageTests(unittest.TestCase):
     def test_admin_exposes_password_page(self):
         html = (PROJECT_DIR / "templates" / "index.html").read_text()
-        self.assertIn("nav('password')", html)
+        self.assertNotIn("nav('password')", html)
+        self.assertNotIn('data-page="password"', html)
         self.assertIn("总控登录密码", html)
-        self.assertIn("不影响 Agent", html)
-        self.assertIn('data-page="password"', html)
+        self.assertIn("不影响远程 Agent", html)
         self.assertIn("api('password'", html)
+        self.assertIn("function renderNodesPage(", html)
+        self.assertGreater(html.index("保存总控密码"), html.index("function renderNodesPage("))
+        self.assertIn("nodes-setup-grid", html)
         source = (PROJECT_DIR / "main.py").read_text()
         self.assertIn('"/api/password"', source)
         self.assertIn("not path.startswith(\"/api/password\")", source)

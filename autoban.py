@@ -62,6 +62,7 @@ def detect_default_logpaths(panel_root=None, waf_base=None):
 def default_autoban_config():
     return {
         "enabled": False,
+        "bundled_jails_enabled": True,
         "jail_name": "waf-panel-autoban",
         "filter_name": "waf-panel-autoban",
         "port": "80,443",
@@ -101,11 +102,11 @@ def default_autoban_config():
         ],
         "jails": [
             {"name": "autoban-nginx-cc", "enabled": True, "filter": "nginx-cc", "maxretry": 5, "findtime": 600, "bantime": 3600},
-            {"name": "autoban-nginx-badbots", "enabled": False, "filter": "apache-badbots", "maxretry": 2, "findtime": 600, "bantime": 3600},
-            {"name": "autoban-nginx-botsearch", "enabled": False, "filter": "nginx-botsearch", "maxretry": 5, "findtime": 600, "bantime": 3600},
-            {"name": "autoban-nginx-http-auth", "enabled": False, "filter": "nginx-http-auth", "maxretry": 5, "findtime": 600, "bantime": 3600},
-            {"name": "autoban-nginx-limit-req", "enabled": False, "filter": "nginx-limit-req", "maxretry": 5, "findtime": 600, "bantime": 3600},
-            {"name": "autoban-php-url-fopen", "enabled": False, "filter": "php-url-fopen", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "autoban-nginx-badbots", "enabled": True, "filter": "apache-badbots", "maxretry": 2, "findtime": 600, "bantime": 3600},
+            {"name": "autoban-nginx-botsearch", "enabled": True, "filter": "nginx-botsearch", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "autoban-nginx-http-auth", "enabled": True, "filter": "nginx-http-auth", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "autoban-nginx-limit-req", "enabled": True, "filter": "nginx-limit-req", "maxretry": 5, "findtime": 600, "bantime": 3600},
+            {"name": "autoban-php-url-fopen", "enabled": True, "filter": "php-url-fopen", "maxretry": 5, "findtime": 600, "bantime": 3600},
         ],
     }
 
@@ -118,6 +119,8 @@ LEGACY_JAIL_RENAMES = {
     "docker-nginx-limit-req": "autoban-nginx-limit-req",
     "docker-php-url-fopen": "autoban-php-url-fopen",
 }
+
+BUNDLED_JAIL_NAMES = set(LEGACY_JAIL_RENAMES.values()) | set(LEGACY_JAIL_RENAMES)
 
 
 def _rename_legacy_jails(jails):
@@ -139,6 +142,19 @@ def _rename_legacy_jails(jails):
     return renamed
 
 
+def _enable_bundled_jails(jails, cfg):
+    if cfg.get("bundled_jails_enabled"):
+        return False
+    for item in jails:
+        if not isinstance(item, dict):
+            continue
+        name = LEGACY_JAIL_RENAMES.get(str(item.get("name") or "").strip(), str(item.get("name") or "").strip())
+        if name in BUNDLED_JAIL_NAMES:
+            item["enabled"] = True
+    cfg["bundled_jails_enabled"] = True
+    return True
+
+
 def load_autoban_config(path=None):
     cfg = default_autoban_config()
     path = Path(path or AUTOBAN_CONFIG_PATH)
@@ -148,6 +164,7 @@ def load_autoban_config(path=None):
             loaded = json.load(f)
         if isinstance(loaded, dict):
             persist = _rename_legacy_jails(_as_list(loaded.get("jails")))
+            persist = _enable_bundled_jails(_as_list(loaded.get("jails")), loaded) or persist
             cfg.update(loaded)
     cfg = normalize_autoban_config(cfg)
     if persist:

@@ -287,6 +287,47 @@ enabled = false
         ])
         self.assertTrue(all(name.startswith("autoban-") for name in names))
         self.assertFalse(any(name.startswith("docker-") for name in names))
+        self.assertTrue(all(jail["enabled"] for jail in default_autoban_config()["jails"]))
+
+    def test_load_enables_legacy_bundled_additional_jails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "autoban.json"
+            path.write_text(json.dumps({
+                "jails": [
+                    {"name": "autoban-nginx-cc", "enabled": True, "filter": "nginx-cc"},
+                    {"name": "autoban-nginx-badbots", "enabled": False, "filter": "apache-badbots"},
+                    {"name": "autoban-nginx-botsearch", "enabled": False, "filter": "nginx-botsearch"},
+                    {"name": "autoban-nginx-http-auth", "enabled": False, "filter": "nginx-http-auth"},
+                    {"name": "autoban-nginx-limit-req", "enabled": False, "filter": "nginx-limit-req"},
+                    {"name": "autoban-php-url-fopen", "enabled": False, "filter": "php-url-fopen"},
+                ]
+            }))
+
+            loaded = load_autoban_config(path)
+            persisted = json.loads(path.read_text())
+
+        self.assertTrue(all(jail["enabled"] for jail in loaded["jails"]))
+        self.assertTrue(persisted.get("bundled_jails_enabled"))
+        self.assertTrue(all(jail["enabled"] for jail in persisted["jails"]))
+
+    def test_load_keeps_explicit_bundled_jail_disable_after_migration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "autoban.json"
+            path.write_text(json.dumps({
+                "bundled_jails_enabled": True,
+                "jails": [
+                    {"name": "autoban-nginx-cc", "enabled": True, "filter": "nginx-cc"},
+                    {"name": "autoban-nginx-badbots", "enabled": False, "filter": "apache-badbots"},
+                    {"name": "custom-app", "enabled": False, "filter": "nginx-cc"},
+                ]
+            }))
+
+            loaded = load_autoban_config(path)
+
+        by_name = {jail["name"]: jail["enabled"] for jail in loaded["jails"]}
+        self.assertTrue(by_name["autoban-nginx-cc"])
+        self.assertFalse(by_name["autoban-nginx-badbots"])
+        self.assertFalse(by_name["custom-app"])
 
     def test_load_renames_legacy_docker_jail_names(self):
         with tempfile.TemporaryDirectory() as tmp:

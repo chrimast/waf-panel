@@ -3,10 +3,17 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit, urlunsplit
+
+
+PROBE_TIMEOUT = 1.5
+FORWARD_TIMEOUT = 4
+PROBE_TTL = 30
+_PROBE_CACHE: dict[str, tuple[float, dict]] = {}
 
 
 class LocalNodeError(RuntimeError):
@@ -94,25 +101,48 @@ def save_state(state: dict) -> None:
     path.write_text(json.dumps(state, ensure_ascii=False, indent=2))
 
 
-def probe_node(node: dict) -> dict:
+def probe_node(node: dict, force: bool = False) -> dict:
     if (node or {}).get("kind") == "local" or (node or {}).get("id") == "local":
         return {"online": True, "status": "online", "message": "本机直连"}
+    node_id = str((node or {}).get("id") or "")
+    now = time.monotonic()
+    cached = _PROBE_CACHE.get(node_id)
+    if not force and cached and now - cached[0] < PROBE_TTL:
+        return dict(cached[1])
     url = agent_api_url(node.get("url") or "", "/agent/health")
     headers = {"Authorization": f"Bearer {node.get('token') or ''}"}
-    response = http_request("GET", url, headers=headers, timeout=4)
+    response = http_request("GET", url, headers=headers, timeout=PROBE_TIMEOUT)
     body = response.json() if hasattr(response, "json") else {}
     if not isinstance(body, dict):
         body = {}
     if response.status_code == 200 and body.get("ok"):
-        return {"online": True, "status": "online", "message": "连接正常"}
-    if response.status_code in (401, 403):
-        return {"online": False, "status": "auth", "message": "Token 无效"}
-    detail = str(body.get("message") or body.get("detail") or f"HTTP {response.status_code}")
-    return {"online": False, "status": "offline", "message": detail[:120]}
+        result = {"online": True, "status": "online", "message": "连接正常"}
+    elif response.status_code in (401, 403):
+        result = {"online": False, "status": "auth", "message": "Token 无效"}
+    else:
+        detail = str(body.get("message") or body.get("detail") or f"HTTP {response.status_code}")
+        result = {"online": False, "status": "offline", "message": detail[:120]}
+    if node_id:
+        _PROBE_CACHE[node_id] = (now, result)
+    return dict(result)
 
 
-def list_nodes() -> list[dict]:
-    return [_public_node(node, probe_node(node)) for node in load_state()["nodes"]]
+def list_nodes(probe: bool = False) -> list[dict]:
+    items = []
+    for node in load_state()["nodes"]:
+        if probe:
+            status = probe_node(node, force=True)
+        else:
+            node_id = str(node.get("id") or "")
+            cached = _PROBE_CACHE.get(node_id)
+            if cached:
+                status = dict(cached[1])
+            elif (node or {}).get("kind") == "local" or node_id == "local":
+                status = {"online": True, "status": "online", "message": "本机直连"}
+            else:
+                status = None
+        items.append(_public_node(node, status))
+    return items
 
 
 def get_node(node_id: str) -> dict | None:
@@ -138,7 +168,9 @@ def select_node(node_id: str) -> dict:
     state["current_id"] = node_id
     save_state(state)
     node = get_node(node_id) or {"id": node_id, "name": node_id, "kind": "remote", "url": ""}
-    return _public_node(node, probe_node(node))
+    cached = _PROBE_CACHE.get(node_id)
+    probe = dict(cached[1]) if cached else None
+    return _public_node(node, probe)
 
 
 def add_node(name: str, url: str, token: str) -> dict:
@@ -246,5 +278,16 @@ def forward_agent_request(node: dict, method: str, path: str, body=None):
         raise LocalNodeError("本机节点不转发")
     url = agent_api_url(node.get("url") or "", path)
     headers = {"Authorization": f"Bearer {node.get('token') or ''}"}
-    response = http_request(method, url, headers=headers, payload=body, timeout=20)
-    return response.json(), response.status_code
+    response = http_request(method, url, headers=headers, payload=body, timeout=FORWARD_TIMEOUT)
+    payload = response.json() if hasattr(response, "json") else {}
+    if not isinstance(payload, dict):
+        payload = {"error": True, "message": str(payload)}
+    if response.status_code >= 400:
+        payload.setdefault("error", True)
+        payload.setdefault("message", f"HTTP {response.status_code}")
+        node_id = str((node or {}).get("id") or "")
+        if node_id and response.status_code in (401, 403, 502, 503, 504):
+            status = "auth" if response.status_code in (401, 403) else "offline"
+            message = "Token 无效" if status == "auth" else str(payload.get("message") or "无法连接")[:120]
+            _PROBE_CACHE[node_id] = (time.monotonic(), {"online": False, "status": status, "message": message})
+    return payload, response.status_code

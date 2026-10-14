@@ -112,8 +112,8 @@ async def agent_health():
     return {"ok": True, "role": "agent", "node_id": local.get("id") or "local"}
 
 @app.get("/api/nodes")
-async def api_nodes():
-    return {"current_id": current_node_id(), "nodes": list_nodes()}
+async def api_nodes(probe: bool = False):
+    return {"current_id": current_node_id(), "nodes": list_nodes(probe=probe)}
 
 @app.post("/api/nodes")
 async def api_nodes_add(request: Request):

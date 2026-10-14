@@ -21,7 +21,9 @@ class NodeStoreTests(unittest.TestCase):
         self.nodes = nodes
         self._orig = nodes.NODES_STORE
         nodes.NODES_STORE = Path(self.tmp.name) / "nodes.json"
+        nodes._PROBE_CACHE.clear()
         self.addCleanup(lambda: setattr(nodes, "NODES_STORE", self._orig))
+        self.addCleanup(nodes._PROBE_CACHE.clear)
 
     def test_default_local_node_is_created(self):
         items = self.nodes.list_nodes()
@@ -73,7 +75,7 @@ class NodeStoreTests(unittest.TestCase):
             ok = self.nodes.add_node("香港 1", "http://192.0.2.8:10087", "good-token")
             bad_token = self.nodes.add_node("香港 2", "http://192.0.2.9:10087", "bad-token")
             down = self.nodes.add_node("香港 3", "http://192.0.2.10:10087", "any-token")
-            listed = {item["id"]: item for item in self.nodes.list_nodes()}
+            listed = {item["id"]: item for item in self.nodes.list_nodes(probe=True)}
 
         self.assertTrue(ok["online"])
         self.assertEqual(ok["status"], "online")
@@ -88,7 +90,68 @@ class NodeStoreTests(unittest.TestCase):
         health_calls = [item for item in captured if item["url"].endswith("/agent/health")]
         self.assertGreaterEqual(len(health_calls), 3)
         self.assertEqual(health_calls[0]["headers"]["Authorization"], "Bearer good-token")
-        self.assertLessEqual(health_calls[0]["timeout"], 5)
+        self.assertLessEqual(health_calls[0]["timeout"], 2)
+
+    def test_list_nodes_without_probe_does_not_contact_agents(self):
+        captured = []
+
+        def fake_request(method, url, headers=None, payload=None, timeout=None):
+            captured.append(url)
+            return type("R", (), {"status_code": 200, "json": lambda self=None: {"ok": True}})()
+
+        with patch.object(self.nodes, "http_request", fake_request):
+            self.nodes.add_node("香港 1", "http://192.0.2.8:10087", "good-token")
+            captured.clear()
+            items = self.nodes.list_nodes()
+
+        self.assertEqual(captured, [])
+        remote = next(item for item in items if item["kind"] == "remote")
+        self.assertTrue(remote["online"])
+
+        captured.clear()
+        self.nodes._PROBE_CACHE.clear()
+        with patch.object(self.nodes, "http_request", fake_request):
+            stale = self.nodes.list_nodes()
+        self.assertEqual(captured, [])
+        remote = next(item for item in stale if item["kind"] == "remote")
+        self.assertEqual(remote["status"], "unknown")
+
+    def test_select_node_does_not_probe_remote(self):
+        captured = []
+
+        def fake_request(method, url, headers=None, payload=None, timeout=None):
+            captured.append(url)
+            return type("R", (), {"status_code": 502, "json": lambda self=None: {"error": True}})()
+
+        with patch.object(self.nodes, "http_request", fake_request):
+            node = self.nodes.add_node("香港 3", "http://192.0.2.10:10087", "any-token")
+            captured.clear()
+            selected = self.nodes.select_node(node["id"])
+
+        self.assertEqual(captured, [])
+        self.assertEqual(selected["id"], node["id"])
+        self.assertEqual(self.nodes.current_node_id(), node["id"])
+
+    def test_cached_probe_is_reused_until_forced(self):
+        captured = []
+
+        def fake_request(method, url, headers=None, payload=None, timeout=None):
+            captured.append(url)
+            return type("R", (), {"status_code": 200, "json": lambda self=None: {"ok": True}})()
+
+        with patch.object(self.nodes, "http_request", fake_request):
+            node = self.nodes.add_node("香港 1", "http://192.0.2.8:10087", "good-token")
+            after_add = len(captured)
+            self.nodes.list_nodes()
+            after_cached = len(captured)
+            self.nodes.list_nodes(probe=True)
+            after_force = len(captured)
+
+        self.assertGreaterEqual(after_add, 1)
+        self.assertEqual(after_cached, after_add)
+        self.assertGreater(after_force, after_cached)
+        listed = {item["id"]: item for item in self.nodes.list_nodes()}
+        self.assertTrue(listed[node["id"]]["online"])
 
     def test_agent_token_matches_local_or_explicit_secret(self):
         local = self.nodes.get_node("local")
@@ -122,6 +185,7 @@ class NodeProxyTests(unittest.TestCase):
         self.assertEqual(captured["method"], "GET")
         self.assertEqual(captured["url"], "http://192.0.2.8:10087/agent/api/dashboard")
         self.assertEqual(captured["headers"]["Authorization"], "Bearer remote-agent-token")
+        self.assertLessEqual(captured["timeout"], 5)
 
     def test_local_node_is_not_forwarded(self):
         import nodes

@@ -157,7 +157,52 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertIn("loadNodes().then(()=>nav(pageFromHash()))", self.template)
         self.assertNotIn("loadNodes().then(()=>nav('dashboard'))", self.template)
         self.assertIn("addEventListener('hashchange'", self.template)
-        self.assertIn("['dashboard','logs','bans','autoban','pages','nodes','password']", self.template)
+        self.assertIn("['nodes','dashboard','logs','bans','autoban','pages']", self.template)
+        self.assertNotIn("['dashboard','logs','bans','autoban','pages','nodes','password']", self.template)
+        self.assertLess(self.template.index('data-page="nodes"'), self.template.index('data-page="dashboard"'))
+        self.assertNotIn('data-page="password"', self.template)
+        self.assertNotIn("nav('password')", self.template)
+
+    def test_nodes_page_includes_console_password_form(self):
+        self.assertIn('id="pwCurrent"', self.template)
+        self.assertIn('id="pwNew"', self.template)
+        self.assertIn('id="pwConfirm"', self.template)
+        self.assertIn("function submitPassword()", self.template)
+        self.assertIn("保存总控密码", self.template)
+        self.assertGreater(self.template.index("保存总控密码"), self.template.index("function renderNodesPage("))
+        self.assertIn("async function page_password(){return page_nodes()}", self.template)
+        self.assertIn('class="nodes-setup-grid"', self.template)
+        self.assertIn(".nodes-setup-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr)", self.template)
+        self.assertIn("@media(max-width:600px){.nodes-setup-grid,.autoban-tools-grid{grid-template-columns:1fr}", self.template)
+        self.assertLess(self.template.index("添加远程 Agent"), self.template.index("总控登录密码"))
+
+    def test_offline_agent_shows_page_instead_of_blank_main(self):
+        self.assertIn("function currentNodeUnreachable()", self.template)
+        self.assertIn("function showNodeUnreachable(", self.template)
+        self.assertIn("切回本机", self.template)
+        self.assertIn("switchNode('local')", self.template)
+        self.assertIn("if(currentNodeUnreachable()){showNodeUnreachable('仪表盘');return;}", self.template)
+        self.assertIn("if(currentNodeUnreachable()){showNodeUnreachable('攻击日志');return;}", self.template)
+        self.assertIn("if(currentNodeUnreachable()){showNodeUnreachable('封禁管理');return;}", self.template)
+        self.assertIn("if(currentNodeUnreachable()){showNodeUnreachable('自动封禁');return;}", self.template)
+        self.assertIn("if(currentNodeUnreachable()){showNodeUnreachable('拦截页面');return;}", self.template)
+        self.assertNotIn("if(!blocks||!list)return;", self.template)
+
+    def test_node_switch_updates_selection_before_reload(self):
+        self.assertIn("function renderNodeList(", self.template)
+        self.assertIn("_nodesCache.current_id=id", self.template)
+        self.assertIn("renderNodeList(_nodesCache)", self.template)
+        self.assertIn("loadNodes({probe:true})", self.template)
+        self.assertNotIn("await loadNodes(); nav(_currentPage==='password'?'dashboard':_currentPage)", self.template)
+
+    def test_sidebar_nav_shows_loading_shell_immediately(self):
+        self.assertIn("const PAGE_TITLES=", self.template)
+        self.assertIn("function showPageLoading(", self.template)
+        self.assertIn("function navRequestAlive(", self.template)
+        self.assertIn("showPageLoading(PAGE_TITLES[page]||page)", self.template)
+        self.assertIn("if(!navRequestAlive(seq))return", self.template)
+        self.assertIn("nav(target)", self.template)
+        self.assertIn("const target=_currentPage;", self.template)
 
     def test_dashboard_integrates_map_and_geo_controls(self):
         self.assertIn('id="dashboardMap"', self.template)
@@ -203,9 +248,11 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertIn("d.main_jail_generated", self.template)
         self.assertIn("${mainJailGenerated?'disabled':''}", self.template)
         self.assertIn("删除被引用的 Filter 会被阻止", self.template)
-        self.assertIn("/etc/fail2ban/filter.d/&lt;name&gt;.conf", self.template)
         self.assertIn("附加 Jails", self.template)
-        self.assertIn("/etc/fail2ban/jail.d/waf-panel-autoban.local", self.template)
+        self.assertIn("r?.running?'badge-success':'badge-warn'", self.template)
+        self.assertIn("r?.running?'运行中':'未运行'", self.template)
+        self.assertNotIn("j.enabled?'badge-success':'badge-warn'", self.template)
+        self.assertNotIn("${j.enabled?'已启用':'已停用'}</span>", self.template)
         self.assertIn("每个 Jail 可独立选择 Filter", self.template)
         self.assertIn('<label>设置端口</label><input id="abPort"', self.template)
         self.assertIn("c.port||'80,443'", self.template)
@@ -222,11 +269,14 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertIn('class="autoban-hero"', self.template)
         self.assertIn('class="autoban-summary-grid"', self.template)
         self.assertIn('class="autoban-policy-grid"', self.template)
+        self.assertIn(".autoban-policy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))", self.template)
+        self.assertNotIn("grid-template-columns:minmax(0,1.35fr) minmax(280px,.65fr)", self.template)
         self.assertIn('class="autoban-jails-toolbar"', self.template)
         self.assertIn('id="abJailResources"', self.template)
         self.assertIn('自动封禁状态', self.template)
         self.assertIn('共享策略', self.template)
-        self.assertIn('仅影响 WAF 自动封禁', self.template)
+        self.assertNotIn('仅影响 WAF 自动封禁', self.template)
+        self.assertNotIn('端口是封禁目标端口', self.template)
         heading = self.template[self.template.index('>共享策略</h3>')-120:self.template.index('>共享策略</h3>')+180]
         self.assertIn('class="autoban-jails-toolbar"', heading)
         self.assertIn('onclick="detectAutobanLogpaths()"', heading)
@@ -289,7 +339,7 @@ class WafPanelTemplateTests(unittest.TestCase):
     def test_autoban_uses_one_continuous_page(self):
         for marker in (
             "主 Jail", "共享策略", "附加 Jails", "自定义 Filter",
-            "备份、检查与 Cloudflare（可选）", "运行操作",
+            "备份与检查", "Cloudflare 与真实 IP", "诊断",
         ):
             self.assertIn(marker, self.template)
         for obsolete in (
@@ -326,14 +376,24 @@ class WafPanelTemplateTests(unittest.TestCase):
         self.assertIn('.autoban-manual .btn{height:34px;min-width:72px;white-space:nowrap}', self.template)
 
     def test_autoban_advanced_tools_are_grouped_by_operator_intent(self):
-        self.assertIn('备份、检查与 Cloudflare（可选）', self.template)
-        self.assertIn('通常无需展开', self.template)
-        self.assertIn('备份配置', self.template)
-        self.assertIn('恢复备份', self.template)
-        self.assertIn('Cloudflare 与真实 IP（可选）', self.template)
-        self.assertIn('规则与诊断（通常无需修改）', self.template)
-        self.assertIn('class="autoban-subsection"', self.template)
-        self.assertIn("/etc/fail2ban/filter.d/&lt;name&gt;.conf", self.template)
+        self.assertIn('备份与检查', self.template)
+        self.assertIn('class="autoban-tools-grid"', self.template)
+        self.assertIn(".autoban-tools-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px;align-items:stretch}", self.template)
+        self.assertIn(".autoban-tools-grid>.card{margin:0;min-width:0;height:100%;display:flex;flex-direction:column}", self.template)
+        self.assertNotIn('备份、检查与 Cloudflare（可选）', self.template)
+        self.assertNotIn('class="autoban-subsection"', self.template)
+        actions = self.template[self.template.index(">备份与检查</h3>"):self.template.index(">Cloudflare 与真实 IP</h3>")]
+        self.assertLess(actions.index("查看将写入的文件"), actions.index("校验草稿"))
+        self.assertLess(actions.index("校验草稿"), actions.index("恢复备份"))
+        self.assertLess(actions.index("恢复备份"), actions.index("导出 JSON"))
+        self.assertIn("previewAutobanConfig()", self.template)
+        self.assertIn("page_autoban(){", self.template)
+        self.assertIn("previewAutobanConfig();", self.template)
+        self.assertIn('Cloudflare 与真实 IP', self.template)
+        self.assertNotIn('规则与诊断（通常无需修改）', self.template)
+        self.assertIn('>诊断</h3>', self.template)
+        self.assertIn('id="abStatus"', self.template)
+        self.assertIn('id="abPreviewOutput"', self.template)
 
 
 if __name__ == "__main__":
