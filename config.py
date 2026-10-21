@@ -1,9 +1,8 @@
-import secrets
 """
-1Panel WAF 管理面板 - 配置
+1Panel WAF Agent - 配置
 零侵入: 只读写 WAF 数据文件，不修改 1Panel 自身
 """
-import os, json, sqlite3, subprocess, hashlib, hmac, base64, time
+import os, json, sqlite3, subprocess, secrets
 
 PANEL_HOME = os.environ.get("WAF_PANEL_HOME", os.path.dirname(os.path.abspath(__file__)))
 WAF_BASE = os.environ.get("WAF_BASE", "/opt/1panel/apps/openresty/openresty/1pwaf/data")
@@ -18,21 +17,30 @@ NGINX_RELOAD_CMD = [
     "/usr/local/openresty/nginx/sbin/nginx", "-s", "reload",
 ]
 
-from password import current_password, verify_password, change_password
-
-PANEL_PASSWORD = os.environ.get("WAF_PANEL_PASSWORD", "***")
-SESSION_TTL = int(os.environ.get("WAF_PANEL_SESSION_TTL", "86400"))
-PANEL_ROLE = os.environ.get("WAF_PANEL_ROLE", "console").strip().lower() or "console"
+PANEL_ROLE = os.environ.get("WAF_PANEL_ROLE", "agent").strip().lower() or "agent"
 
 
 def is_agent_role() -> bool:
-    return PANEL_ROLE == "agent"
+    return PANEL_ROLE != "console"
 
 
 def console_path_allowed(path: str) -> bool:
-    if not is_agent_role():
-        return True
     return path == "/agent/health" or path.startswith("/agent/")
+
+
+def verify_agent_token(token: str) -> bool:
+    offered = (token or "").strip()
+    expected = os.environ.get("WAF_AGENT_TOKEN", "").strip()
+    if not offered or not expected:
+        return False
+    return secrets.compare_digest(offered, expected)
+
+
+def bearer_from_request(authorization: str | None) -> str:
+    value = (authorization or "").strip()
+    if value.lower().startswith("bearer "):
+        return value.split(" ", 1)[1].strip()
+    return ""
 
 RULE_NAMES = {
     "waf": "WAF总开关", "xss": "XSS防护", "sql": "SQL注入防护",
@@ -85,28 +93,3 @@ alias_map = {
     "nl": "nginx_logs", "ua": "user_agents",
     "is2": "ip_stats", "rs": "rule_stats",
 }
-
-def auth_secret():
-    return hashlib.sha256(f"{current_password() or PANEL_PASSWORD}|waf-panel".encode()).hexdigest()
-
-def auth_make_token(_ip: str = ""):
-    # Do not bind sessions to client IP across mobile/desktop view switches.
-    exp = int(time.time()) + SESSION_TTL
-    nonce = secrets.token_urlsafe(18)
-    payload = f"{exp}|{nonce}"
-    sig = hmac.new(auth_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
-    return base64.urlsafe_b64encode(f"{payload}|{sig}".encode()).decode()
-
-def auth_verify_token(token: str) -> bool:
-    try:
-        decoded = base64.urlsafe_b64decode(token.encode()).decode()
-        parts = decoded.split("|")
-        if len(parts) == 2:
-            exp_str, sig = parts; payload = exp_str
-        elif len(parts) == 3:
-            exp_str, ip, sig = parts; payload = f"{exp_str}|{ip}"
-        else: return False
-        if time.time() > int(exp_str): return False
-        expected = hmac.new(auth_secret().encode(), payload.encode(), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(expected, sig)
-    except Exception: return False

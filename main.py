@@ -1,26 +1,12 @@
 """
-1Panel WAF 管理面板 - FastAPI
+1Panel WAF Agent - FastAPI
 零侵入: 直接读写 WAF 配置文件 + SQLite 日志，不修改 1Panel
 """
-from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
 import asyncio, os, sqlite3, json, subprocess, time
 
 from config import *
-from nodes import (
-    LocalNodeError,
-    add_node,
-    bearer_from_request,
-    current_node,
-    current_node_id,
-    delete_node,
-    forward_agent_request,
-    get_node,
-    list_nodes,
-    select_node,
-    verify_agent_token,
-)
 from autoban import (
     apply_autoban_config,
     apply_jail_waf_ban,
@@ -39,34 +25,23 @@ from autoban import (
     validate_autoban_config,
 )
 
-app = FastAPI(title="WAF 管理面板")
-app.mount("/static", StaticFiles(directory=os.path.join(PANEL_HOME, "static")), name="static")
-
-# ── 认证中间件 ────────────────────────────────────
-def get_token(request: Request) -> str:
-    return request.cookies.get("waf_token", "")
+app = FastAPI(title="WAF Agent")
 
 def _is_agent_path(path: str) -> bool:
     return path == "/agent/health" or path.startswith("/agent/")
 
 def require_auth(request: Request):
     path = request.url.path
-    if is_agent_role() and not console_path_allowed(path):
-        raise HTTPException(403, detail="当前为 Agent 模式，仅提供节点接口")
+    if path == "/":
+        return
+    if not _is_agent_path(path) and not path.startswith("/api/"):
+        raise HTTPException(404, detail="Not Found")
     if getattr(request.state, "agent_ok", False):
         return
-    if _is_agent_path(path):
+    if path == "/agent/health" or path.startswith("/agent/") or path.startswith("/api/"):
         token = bearer_from_request(request.headers.get("authorization"))
         if not verify_agent_token(token):
             raise HTTPException(401, detail="Agent Token 无效")
-        return
-    if path == "/login" or path.startswith("/static/"):
-        return
-    token = get_token(request)
-    if not token or not auth_verify_token(token):
-        if path.startswith("/api"):
-            raise HTTPException(401, detail="请先登录")
-        raise HTTPException(302, headers={"Location": "/login"})
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
@@ -81,116 +56,16 @@ async def auth_middleware(request: Request, call_next):
     try:
         require_auth(request)
     except HTTPException as e:
-        if e.status_code == 302:
-            return RedirectResponse("/login", 302)
-        need_login = e.status_code == 401 and not _is_agent_path(request.url.path) and not getattr(request.state, "agent_ok", False)
-        return JSONResponse({"error": True, "message": e.detail, "need_login": need_login}, e.status_code)
-    if (
-        path.startswith("/api/")
-        and not path.startswith("/api/nodes")
-        and not path.startswith("/api/password")
-        and not getattr(request.state, "agent_ok", False)
-    ):
-        node = current_node()
-        if node.get("kind") == "remote":
-            body = None
-            if request.method not in ("GET", "HEAD"):
-                try:
-                    body = await request.json()
-                except Exception:
-                    body = None
-            fwd_path = path
-            if request.url.query:
-                fwd_path = path + "?" + request.url.query
-            payload, status = forward_agent_request(node, request.method, fwd_path, body)
-            return JSONResponse(payload, status)
+        return JSONResponse({"error": True, "message": e.detail}, e.status_code)
     return await call_next(request)
 
 @app.get("/agent/health")
 async def agent_health():
-    local = get_node("local") or {}
-    return {"ok": True, "role": "agent", "node_id": local.get("id") or "local"}
+    return {"ok": True, "role": "agent"}
 
-@app.get("/api/nodes")
-async def api_nodes(probe: bool = False):
-    return {"current_id": current_node_id(), "nodes": list_nodes(probe=probe)}
-
-@app.post("/api/nodes")
-async def api_nodes_add(request: Request):
-    body = await request.json()
-    try:
-        node = add_node(body.get("name", ""), body.get("url", ""), body.get("token", ""))
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
-    return {"ok": True, "node": node}
-
-@app.post("/api/nodes/select")
-async def api_nodes_select(request: Request):
-    body = await request.json()
-    node_id = (body.get("id") or "").strip()
-    try:
-        select_node(node_id)
-    except KeyError:
-        raise HTTPException(404, "节点不存在")
-    return {"ok": True, "current_id": current_node_id()}
-
-@app.post("/api/nodes/delete")
-async def api_nodes_delete(request: Request):
-    body = await request.json()
-    node_id = (body.get("id") or "").strip()
-    try:
-        delete_node(node_id)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
-    return {"ok": True, "current_id": current_node_id(), "nodes": list_nodes()}
-
-@app.post("/api/password")
-async def api_change_password(request: Request):
-    body = await request.json()
-    current = str(body.get("current") or body.get("old_password") or "")
-    new_password = str(body.get("new_password") or "")
-    confirm = str(body.get("confirm") or body.get("new_password_confirm") or "")
-    if confirm and confirm != new_password:
-        raise HTTPException(400, "两次输入的新密码不一致")
-    try:
-        change_password(current, new_password)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
-    return {"ok": True, "message": "密码已修改，请重新登录"}
-
-# ── 登录 ──────────────────────────────────────────
-@app.get("/login", include_in_schema=False)
-@app.post("/login", include_in_schema=False)
-async def login_page(request: Request):
-    if request.method == "POST":
-        form = await request.form()
-        password = str(form.get("password") or "")
-        if verify_password(password):
-            token = auth_make_token(request.client.host)
-            resp = RedirectResponse("/", 302)
-            resp.set_cookie("waf_token", token, max_age=SESSION_TTL, expires=int(time.time())+SESSION_TTL, httponly=True, path="/", samesite="lax")
-            return resp
-        return HTMLResponse(LOGIN_HTML.replace("{MSG}", '<p style="color:#e03131;text-align:center">密码错误</p>'))
-    return HTMLResponse(LOGIN_HTML.replace("{MSG}", ""))
-
-LOGIN_HTML = """<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>WAF 管理面板 · 登录</title>
-<style>*{margin:0;padding:0;box-sizing:border-box}html,body{background:#f0f2f7}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f0f2f7;display:flex;align-items:center;justify-content:center;min-height:100vh}
-form{background:#25262b;padding:40px;border-radius:12px;border:1px solid #373a40;width:360px}
-h1{color:#fff;font-size:20px;text-align:center;margin-bottom:24px}
-input{width:100%;padding:12px 16px;background:#1a1b1e;border:1px solid #373a40;color:#c1c2c5;border-radius:8px;font-size:15px;outline:none;margin-bottom:16px}
-input:focus{border-color:#4c6ef5}
-button{width:100%;padding:12px;background:#4c6ef5;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
-button:hover{opacity:.85}
-</style></head><body>
-<form method="post"><h1>WAF 管理面板</h1>{MSG}<input type="password" name="password" placeholder="请输入访问密码" autofocus><button type="submit">登 录</button></form>
-</body></html>"""
-
-# ── 主页面 ────────────────────────────────────────
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def index():
-    path = os.path.join(PANEL_HOME, "templates", "index.html")
-    with open(path) as template:
-        return template.read()
+    return {"ok": True, "role": "agent", "message": "WAF Agent 仅提供 /agent 接口，总控在 CF-Monitor"}
 
 # ── API: 仪表盘 ───────────────────────────────────
 @app.get("/api/dashboard")
@@ -234,25 +109,105 @@ async def dashboard():
     data["waf_mode"] = global_conf.get("waf", {}).get("mode", "?") if global_conf else "?"
     return data
 
+def _logs_sql(where="", limit=20, offset=0):
+    return f"""
+        SELECT i.value as ip,
+               COUNT(*) as count,
+               MIN(a.localtime) as first_seen,
+               MAX(a.localtime) as last_seen,
+               MIN(a.time) as first_time,
+               MAX(a.time) as last_time,
+               MAX(a.is_block) as is_block,
+               MAX(a.id) as last_id,
+               GROUP_CONCAT(DISTINCT r.value) as rule,
+               GROUP_CONCAT(DISTINCT u.value) as uri
+        FROM attack_logs a
+        LEFT JOIN ip.ips i ON i.id=a.ip_id
+        LEFT JOIN ru.rules r ON r.id=a.rule_id
+        LEFT JOIN ur.uris u ON u.id=a.uri_id
+        {where}
+        GROUP BY i.value
+        ORDER BY count DESC
+        LIMIT {int(limit)} OFFSET {int(offset)}
+    """
+
+
+def _logs_count_sql(where=""):
+    return f"""
+        SELECT COUNT(*) FROM (
+            SELECT i.value
+            FROM attack_logs a
+            LEFT JOIN ip.ips i ON i.id=a.ip_id
+            LEFT JOIN ru.rules r ON r.id=a.rule_id
+            LEFT JOIN ur.uris u ON u.id=a.uri_id
+            {where}
+            GROUP BY i.value
+        )
+    """
+
+
+def _aggregate_attack_logs(rows):
+    grouped = {}
+    for row in rows:
+        ip = row.get("ip") or ""
+        item = grouped.setdefault(ip, {
+            "ip": ip,
+            "count": 0,
+            "first_seen": row.get("localtime") or "",
+            "last_seen": row.get("localtime") or "",
+            "first_time": row.get("time") or 0,
+            "last_time": row.get("time") or 0,
+            "is_block": 0,
+            "rules": set(),
+            "uris": set(),
+            "hosts": set(),
+        })
+        item["count"] += 1
+        localtime = row.get("localtime") or ""
+        time_value = row.get("time") or 0
+        if localtime and (not item["first_seen"] or localtime < item["first_seen"]):
+            item["first_seen"] = localtime
+        if localtime and localtime > item["last_seen"]:
+            item["last_seen"] = localtime
+        if time_value and (not item["first_time"] or time_value < item["first_time"]):
+            item["first_time"] = time_value
+        if time_value and time_value > item["last_time"]:
+            item["last_time"] = time_value
+        item["is_block"] = max(item["is_block"], int(row.get("is_block") or 0))
+        if row.get("rule"):
+            item["rules"].add(row["rule"])
+        if row.get("uri"):
+            item["uris"].add(row["uri"])
+        if row.get("host"):
+            item["hosts"].add(row["host"])
+    data = []
+    for item in grouped.values():
+        data.append({
+            "ip": item["ip"],
+            "count": item["count"],
+            "first_seen": item["first_seen"],
+            "last_seen": item["last_seen"],
+            "first_time": item["first_time"],
+            "last_time": item["last_time"],
+            "is_block": item["is_block"],
+            "rule": ", ".join(sorted(item["rules"])),
+            "uri": ", ".join(sorted(item["uris"])[:3]),
+            "host": ", ".join(sorted(item["hosts"])[:3]),
+        })
+    data.sort(key=lambda row: (-row["count"], row["last_seen"] or ""), reverse=False)
+    return data
+
+
 # ── API: 攻击日志 ─────────────────────────────────
 @app.get("/api/logs")
 async def logs(page: int = 1, limit: int = 20, search: str = ""):
     _cleanup_expired_temporary_bans()
-    db = db_connect(["ip", "ru", "ur", "mv", "ho"])
+    db = db_connect(["ip", "ru", "ur"])
     where = ""
     if search:
         where = f"WHERE i.value LIKE '%{search}%' OR r.value LIKE '%{search}%' OR u.value LIKE '%{search}%'"
-    total = db.execute(f"SELECT COUNT(*) FROM attack_logs a LEFT JOIN ip.ips i ON i.id=a.ip_id LEFT JOIN ru.rules r ON r.id=a.rule_id LEFT JOIN ur.uris u ON u.id=a.uri_id {where}").fetchone()[0]
-    rows = db.execute(f"""
-        SELECT a.id, a.localtime, a.is_block, a.is_attack, a.time,
-               i.value as ip, r.value as rule, u.value as uri,
-               m.value as match_val, h.value as host
-        FROM attack_logs a
-        LEFT JOIN ip.ips i ON i.id=a.ip_id LEFT JOIN ru.rules r ON r.id=a.rule_id
-        LEFT JOIN ur.uris u ON u.id=a.uri_id LEFT JOIN mv.match_values m ON m.id=a.match_value_id
-        LEFT JOIN ho.hosts h ON h.id=a.host_id
-        {where} ORDER BY a.id DESC LIMIT {limit} OFFSET {(page-1)*limit}
-    """).fetchall()
+    total = db.execute(_logs_count_sql(where)).fetchone()[0]
+    rows = db.execute(_logs_sql(where, limit, (page - 1) * limit)).fetchall()
     data = [dict(r) for r in rows]
     rules = _read_blacklist_file("ipBlack")
     for row in data:

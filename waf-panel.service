@@ -1,5 +1,5 @@
 [Unit]
-Description=1Panel WAF Management Panel
+Description=1Panel WAF Agent
 After=network.target docker.service
 Wants=docker.service
 

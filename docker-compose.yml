@@ -12,6 +12,7 @@ services:
       FAIL2BAN_SOCKET: /var/run/fail2ban/fail2ban.sock
       WAF_PANEL_DOCKER: "1"
       FAIL2BAN_ROOT: /etc/fail2ban
+      WAF_PANEL_ROLE: agent
     volumes:
       - ${WAF_BASE:-/opt/1panel/apps/openresty/openresty/1pwaf/data}:${WAF_BASE:-/opt/1panel/apps/openresty/openresty/1pwaf/data}:rw
       - /var/run/docker.sock:/var/run/docker.sock

@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import sys
-sys.path.insert(0, "/opt/waf-panel")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import main
 
@@ -43,6 +43,33 @@ class WafPanelRuleTests(unittest.TestCase):
 
         self.assertIn("ip.ips", sql)
         self.assertIn("attack_logs", sql)
+
+    def test_logs_sql_groups_by_ip_and_orders_by_count(self):
+        sql = main._logs_sql()
+
+        self.assertIn("GROUP BY i.value", sql)
+        self.assertIn("COUNT(*)", sql)
+        self.assertIn("MIN(", sql)
+        self.assertIn("MAX(", sql)
+        self.assertIn("ORDER BY count DESC", sql)
+        self.assertIn("GROUP_CONCAT", sql)
+        self.assertIn("r.value", sql)
+        self.assertIn("u.value", sql)
+
+    def test_aggregate_attack_logs_merges_ip_with_time_range(self):
+        rows = [
+            {"ip": "203.0.113.9", "localtime": "2026-10-20 10:00:00", "time": 100, "rule": "xss", "uri": "/a", "host": "a.test", "is_block": 1},
+            {"ip": "203.0.113.9", "localtime": "2026-10-20 12:00:00", "time": 200, "rule": "sql", "uri": "/b", "host": "b.test", "is_block": 1},
+            {"ip": "198.51.100.7", "localtime": "2026-10-20 11:00:00", "time": 150, "rule": "cc", "uri": "/", "host": "c.test", "is_block": 0},
+        ]
+
+        data = main._aggregate_attack_logs(rows)
+
+        self.assertEqual([item["ip"] for item in data], ["203.0.113.9", "198.51.100.7"])
+        self.assertEqual(data[0]["count"], 2)
+        self.assertEqual(data[0]["first_seen"], "2026-10-20 10:00:00")
+        self.assertEqual(data[0]["last_seen"], "2026-10-20 12:00:00")
+        self.assertEqual(data[1]["count"], 1)
 
     def test_log_ban_inserts_block_record_for_ip(self):
         self.assertIn("INSERT INTO block_ips", main._block_ip_sql())
@@ -147,253 +174,11 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 
 
 class WafPanelTemplateTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.template = (PROJECT_DIR / "templates" / "index.html").read_text()
-
-    def test_spa_restores_current_page_from_hash_on_reload(self):
-        self.assertIn("function pageFromHash()", self.template)
-        self.assertIn("location.hash", self.template)
-        self.assertIn("loadNodes().then(()=>nav(pageFromHash()))", self.template)
-        self.assertNotIn("loadNodes().then(()=>nav('dashboard'))", self.template)
-        self.assertIn("addEventListener('hashchange'", self.template)
-        self.assertIn("['nodes','dashboard','logs','bans','autoban','pages']", self.template)
-        self.assertNotIn("['dashboard','logs','bans','autoban','pages','nodes','password']", self.template)
-        self.assertLess(self.template.index('data-page="nodes"'), self.template.index('data-page="dashboard"'))
-        self.assertNotIn('data-page="password"', self.template)
-        self.assertNotIn("nav('password')", self.template)
-
-    def test_nodes_page_includes_console_password_form(self):
-        self.assertIn('id="pwCurrent"', self.template)
-        self.assertIn('id="pwNew"', self.template)
-        self.assertIn('id="pwConfirm"', self.template)
-        self.assertIn("function submitPassword()", self.template)
-        self.assertIn("保存总控密码", self.template)
-        self.assertGreater(self.template.index("保存总控密码"), self.template.index("function renderNodesPage("))
-        self.assertIn("async function page_password(){return page_nodes()}", self.template)
-        self.assertIn('class="nodes-setup-grid"', self.template)
-        self.assertIn(".nodes-setup-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr)", self.template)
-        self.assertIn("@media(max-width:600px){.nodes-setup-grid,.autoban-tools-grid{grid-template-columns:1fr}", self.template)
-        self.assertLess(self.template.index("添加远程 Agent"), self.template.index("总控登录密码"))
-
-    def test_offline_agent_shows_page_instead_of_blank_main(self):
-        self.assertIn("function currentNodeUnreachable()", self.template)
-        self.assertIn("function showNodeUnreachable(", self.template)
-        self.assertIn("切回本机", self.template)
-        self.assertIn("switchNode('local')", self.template)
-        self.assertIn("if(currentNodeUnreachable()){showNodeUnreachable('仪表盘');return;}", self.template)
-        self.assertIn("if(currentNodeUnreachable()){showNodeUnreachable('攻击日志');return;}", self.template)
-        self.assertIn("if(currentNodeUnreachable()){showNodeUnreachable('封禁管理');return;}", self.template)
-        self.assertIn("if(currentNodeUnreachable()){showNodeUnreachable('自动封禁');return;}", self.template)
-        self.assertIn("if(currentNodeUnreachable()){showNodeUnreachable('拦截页面');return;}", self.template)
-        self.assertNotIn("if(!blocks||!list)return;", self.template)
-
-    def test_node_switch_updates_selection_before_reload(self):
-        self.assertIn("function renderNodeList(", self.template)
-        self.assertIn("_nodesCache.current_id=id", self.template)
-        self.assertIn("renderNodeList(_nodesCache)", self.template)
-        self.assertIn("loadNodes({probe:true})", self.template)
-        self.assertNotIn("await loadNodes(); nav(_currentPage==='password'?'dashboard':_currentPage)", self.template)
-
-    def test_sidebar_nav_shows_loading_shell_immediately(self):
-        self.assertIn("const PAGE_TITLES=", self.template)
-        self.assertIn("function showPageLoading(", self.template)
-        self.assertIn("function navRequestAlive(", self.template)
-        self.assertIn("showPageLoading(PAGE_TITLES[page]||page)", self.template)
-        self.assertIn("if(!navRequestAlive(seq))return", self.template)
-        self.assertIn("nav(target)", self.template)
-        self.assertIn("const target=_currentPage;", self.template)
-
-    def test_dashboard_integrates_map_and_geo_controls(self):
-        self.assertIn('id="dashboardMap"', self.template)
-        self.assertIn('id="geoAction"', self.template)
-        self.assertIn('id="asnInput"', self.template)
-        self.assertIn("Promise.all([api('dashboard'),api('map'),api('geo_config')])", self.template)
-        self.assertLess(self.template.index('dashboard-recent'), self.template.index('id="geoAction"'))
-
-    def test_map_and_geo_are_removed_from_sidebar(self):
-        self.assertNotIn("nav('mapview')", self.template)
-        self.assertNotIn("nav('geo')", self.template)
-
-    def test_attack_log_table_has_stable_scroll_layout(self):
-        self.assertIn('class="table-scroll attack-log-table"', self.template)
-        self.assertIn(".attack-log-table table{min-width:", self.template)
-        self.assertIn(".cell-clip", self.template)
-
-    def test_attack_logs_have_independent_temporary_and_permanent_controls(self):
-        self.assertIn("临时封禁", self.template)
-        self.assertIn("永久黑名单", self.template)
-        self.assertIn("toggleLogBan(${r.id},'${r.ip||''}','temporary'", self.template)
-        self.assertIn("toggleLogBan(${r.id},'${r.ip||''}','permanent'", self.template)
-
-    def test_autoban_uses_port_and_preset_selects(self):
-        self.assertNotIn(">1Panel Fail2ban</h3>", self.template)
-        self.assertNotIn('id="pServiceEnabled"', self.template)
-        self.assertNotIn('id="pSshEnabled"', self.template)
-        self.assertNotIn('id="pSshPort"', self.template)
-        self.assertNotIn('id="pSshLogpath"', self.template)
-        self.assertIn("启用 WAF 自动封禁", self.template)
-        self.assertIn(">主 Jail</h3>", self.template)
-        self.assertIn('id="abMainJailStatus"', self.template)
-        self.assertIn("未生效", self.template)
-        self.assertIn("已生效", self.template)
-        self.assertNotIn("'已生成'", self.template)
-        self.assertNotIn("'未生成'", self.template)
-        self.assertIn('id="abMainJailEdit"', self.template)
-        self.assertIn(">修改</button>", self.template)
-        self.assertIn('id="abMainJailSave"', self.template)
-        self.assertIn(">保存</button>", self.template)
-        self.assertIn("function setMainJailEditable(", self.template)
-        self.assertIn("function saveMainJail()", self.template)
-        self.assertIn("d.main_jail_generated", self.template)
-        self.assertIn("${mainJailGenerated?'disabled':''}", self.template)
-        self.assertIn("删除被引用的 Filter 会被阻止", self.template)
-        self.assertIn("附加 Jails", self.template)
-        self.assertIn("r?.running?'badge-success':'badge-warn'", self.template)
-        self.assertIn("r?.running?'运行中':'未运行'", self.template)
-        self.assertNotIn("j.enabled?'badge-success':'badge-warn'", self.template)
-        self.assertNotIn("${j.enabled?'已启用':'已停用'}</span>", self.template)
-        self.assertIn("每个 Jail 可独立选择 Filter", self.template)
-        self.assertIn('<label>设置端口</label><input id="abPort"', self.template)
-        self.assertIn("c.port||'80,443'", self.template)
-        self.assertIn("c.chain||'INPUT'", self.template)
-        self.assertIn("c.banaction==='iptables-allports'", self.template)
-        self.assertIn('<select id="abBanaction"', self.template)
-        for action in ("iptables-allports", "iptables-multiport", "firewallcmd-ipset", "ufw"):
-            self.assertIn(f'<option value="{action}"', self.template)
-        self.assertIn('<select id="abRealIpHeader"', self.template)
-        for header in ("CF-Connecting-IP", "X-Forwarded-For", "X-Real-IP", "True-Client-IP"):
-            self.assertIn(f'<option value="{header}"', self.template)
-
-    def test_autoban_page_has_operational_workbench_sections(self):
-        self.assertIn('class="autoban-hero"', self.template)
-        self.assertIn('class="autoban-summary-grid"', self.template)
-        self.assertIn('class="autoban-policy-grid"', self.template)
-        self.assertIn(".autoban-policy-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))", self.template)
-        self.assertNotIn("grid-template-columns:minmax(0,1.35fr) minmax(280px,.65fr)", self.template)
-        self.assertIn('class="autoban-jails-toolbar"', self.template)
-        self.assertIn('id="abJailResources"', self.template)
-        self.assertIn('自动封禁状态', self.template)
-        self.assertIn('共享策略', self.template)
-        self.assertNotIn('仅影响 WAF 自动封禁', self.template)
-        self.assertNotIn('端口是封禁目标端口', self.template)
-        heading = self.template[self.template.index('>共享策略</h3>')-120:self.template.index('>共享策略</h3>')+180]
-        self.assertIn('class="autoban-jails-toolbar"', heading)
-        self.assertIn('onclick="detectAutobanLogpaths()"', heading)
-        self.assertIn('>再次探测</button>', heading)
-        self.assertIn('function detectAutobanLogpaths()', self.template)
-        detect_fn = self.template[self.template.index('function detectAutobanLogpaths()'):self.template.index('function detectAutobanLogpaths()')+520]
-        self.assertIn("api('autoban_config')", detect_fn)
-        self.assertIn("$('#abLogpaths').value=(r.detected_logpaths||[]).join('\\n')", self.template)
-        self.assertIn("$('#abDetectedLogpaths').innerHTML=", detect_fn)
-
-    def test_autoban_page_keeps_explicit_apply_boundary(self):
-        self.assertIn('保存配置（不重启）', self.template)
-        self.assertIn('class="btn btn-primary" onclick="saveAutoban()"', self.template)
-        self.assertIn('应用配置并重启', self.template)
-        self.assertIn('手动封禁', self.template)
-        self.assertIn('手动解封', self.template)
-        self.assertIn('aria-live="polite"', self.template)
-        self.assertIn('开启保护', self.template)
-        self.assertIn('关闭保护', self.template)
-        self.assertIn('toggleAutobanProtection', self.template)
-
-    def test_autoban_simple_view_hides_workbench_behind_advanced(self):
-        self.assertIn('id="abSimpleView"', self.template)
-        self.assertIn('保护已开启', self.template)
-        self.assertIn('保护未开启', self.template)
-        self.assertIn('灵敏度', self.template)
-        self.assertIn('applyAutobanPreset', self.template)
-        self.assertIn("applyAutobanPreset('loose')", self.template)
-        self.assertIn("applyAutobanPreset('standard')", self.template)
-        self.assertIn("applyAutobanPreset('strict')", self.template)
-        self.assertIn('id="abAdvanced"', self.template)
-        simple_at = self.template.index('id="abSimpleView"')
-        advanced_at = self.template.index('id="abAdvanced"')
-        jail_at = self.template.index('>主 Jail</h3>')
-        self.assertLess(simple_at, advanced_at)
-        self.assertLess(advanced_at, jail_at)
-        self.assertIn('高级设置', self.template)
-
-    def test_autoban_page_has_structured_jail_and_filter_management(self):
-        for marker in ('id="abJailResources"', 'id="abFilterResources"', 'id="abResourceEditor"'):
-            self.assertIn(marker, self.template)
-        for action in ('newAutobanJail', 'editAutobanJail', 'copyAutobanJail', 'deleteAutobanJail'):
-            self.assertIn(action, self.template)
-        for action in ('newAutobanFilter', 'editAutobanFilter', 'deleteAutobanFilter', 'testAutobanFilter'):
-            self.assertIn(action, self.template)
-        self.assertIn("此 Filter 正被以下 Jail 使用", self.template)
-        self.assertIn("api('autoban_filter_test'", self.template)
-        self.assertIn("api('autoban_catalog'", self.template)
-        self.assertIn("renderAutobanResources();", self.template)
-
-    def test_autoban_system_filters_are_browsed_in_read_only_modal(self):
-        self.assertIn("查看系统 Filter", self.template)
-        self.assertIn("showSystemFilters", self.template)
-        self.assertIn('id="abSystemFilterSearch"', self.template)
-        self.assertIn("renderSystemFilters", self.template)
-        self.assertIn("f.owner==='panel'", self.template)
-        self.assertIn("f.owner==='system'", self.template)
-        self.assertIn("系统 Filter 仅供选择，不可在此修改", self.template)
-
-    def test_autoban_uses_one_continuous_page(self):
-        for marker in (
-            "主 Jail", "共享策略", "附加 Jails", "自定义 Filter",
-            "备份与检查", "Cloudflare 与真实 IP", "诊断",
-        ):
-            self.assertIn(marker, self.template)
-        for obsolete in (
-            'class="autoban-view-tabs"', 'id="autoban-view-overview"',
-            'id="autoban-view-jails"', 'id="autoban-view-filters"',
-            "switchAutobanView", 'id="abJailsView"', 'id="abFiltersView"',
-        ):
-            self.assertNotIn(obsolete, self.template)
-        self.assertNotIn('<div class="autoban-resource-layout"><div id="abJailResources"', self.template)
-        self.assertIn('<div class="autoban-resource-columns">', self.template)
-        self.assertIn(".autoban-resource-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))", self.template)
-        self.assertIn("@media(max-width:900px){.autoban-resource-columns{grid-template-columns:1fr}", self.template)
-        self.assertIn('<div id="abJailResources" class="autoban-resource-list"></div><div id="abResourceEditor"></div>', self.template)
-        self.assertIn('<div id="abFilterResources" class="autoban-resource-list"></div><div id="abFilterResourceEditor"></div>', self.template)
-
-    def test_autoban_keeps_operations_in_single_page_layout(self):
-        for marker in (
-            "copyAutobanFilter", "重命名时同步更新引用", "abEditJailBackend",
-            "abEditJailJournal", "abEditJailBanaction", "abEditJailChain",
-            "查看将写入的文件", "validateAutobanDraft", "exportAutobanConfig",
-            "importAutobanConfig", "abDependencySummary", "abPreviewOutput",
-            "currently_banned", "测试命中",
-        ):
-            self.assertIn(marker, self.template)
-        self.assertIn("autobanEditor('jail')", self.template)
-        self.assertIn("autobanEditor('filter')", self.template)
-
-    def test_autoban_manual_operations_use_compact_aligned_controls(self):
-        self.assertIn('class="autoban-manual"', self.template)
-        self.assertIn('class="btn btn-danger btn-sm" onclick="manualAutoban(\'ban\')"', self.template)
-        self.assertIn('class="btn btn-sm autoban-secondary" onclick="manualAutoban(\'unban\')"', self.template)
-        self.assertIn('.autoban-manual{display:grid', self.template)
-        self.assertIn('grid-template-columns:minmax(220px,1fr) auto auto', self.template)
-        self.assertIn('.autoban-manual .btn{height:34px;min-width:72px;white-space:nowrap}', self.template)
-
-    def test_autoban_advanced_tools_are_grouped_by_operator_intent(self):
-        self.assertIn('备份与检查', self.template)
-        self.assertIn('class="autoban-tools-grid"', self.template)
-        self.assertIn(".autoban-tools-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px;align-items:stretch}", self.template)
-        self.assertIn(".autoban-tools-grid>.card{margin:0;min-width:0;height:100%;display:flex;flex-direction:column}", self.template)
-        self.assertNotIn('备份、检查与 Cloudflare（可选）', self.template)
-        self.assertNotIn('class="autoban-subsection"', self.template)
-        actions = self.template[self.template.index(">备份与检查</h3>"):self.template.index(">Cloudflare 与真实 IP</h3>")]
-        self.assertLess(actions.index("查看将写入的文件"), actions.index("校验草稿"))
-        self.assertLess(actions.index("校验草稿"), actions.index("恢复备份"))
-        self.assertLess(actions.index("恢复备份"), actions.index("导出 JSON"))
-        self.assertIn("previewAutobanConfig()", self.template)
-        self.assertIn("page_autoban(){", self.template)
-        self.assertIn("previewAutobanConfig();", self.template)
-        self.assertIn('Cloudflare 与真实 IP', self.template)
-        self.assertNotIn('规则与诊断（通常无需修改）', self.template)
-        self.assertIn('>诊断</h3>', self.template)
-        self.assertIn('id="abStatus"', self.template)
-        self.assertIn('id="abPreviewOutput"', self.template)
+    def test_console_html_is_removed(self):
+        self.assertFalse((PROJECT_DIR / "templates" / "index.html").exists())
+        source = (PROJECT_DIR / "main.py").read_text()
+        self.assertNotIn("/login", source)
+        self.assertNotIn("templates/index.html", source)
 
 
 if __name__ == "__main__":
