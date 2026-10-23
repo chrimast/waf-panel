@@ -275,7 +275,7 @@ fi
 HOST_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 HOST_IP="${HOST_IP:-127.0.0.1}"
 log "安装完成"
-printf '本机监听: http://%s:%s （仅本机/内网自检，不要填进 CF-Monitor）\n' "$HOST_IP" "$PORT"
+printf 'Agent 地址: http://%s:%s\n' "$HOST_IP" "$PORT"
 printf '安装目录: %s\n' "$PREFIX"
 printf '运行角色: %s\n' "$ROLE"
 printf 'WAF 数据: %s\n' "$WAF_BASE"
@@ -285,6 +285,6 @@ if [[ $GENERATED_AGENT_TOKEN -eq 1 ]]; then
 else
     printf 'Agent Token: 已保留或使用指定 Token\n'
 fi
-printf '\nCF-Monitor 必须填公网 https://域名（443），不要填 IP 或 :%s。\n' "$PORT"
-printf '可用: cloudflared tunnel --url http://127.0.0.1:%s\n' "$PORT"
-printf 'Token 不要带引号。查看: grep WAF_AGENT_TOKEN %s/.env\n' "$PREFIX"
+printf '\n到 CF-Monitor 后台 WAF 节点填写公网 http://%s:%s 以及上面的 Agent Token。\n' "$HOST_IP" "$PORT"
+printf '不要填 localhost 或 192.168/10.x 内网地址。Token 不要带引号。\n'
+printf '查看 Token: grep WAF_AGENT_TOKEN %s/.env\n' "$PREFIX"

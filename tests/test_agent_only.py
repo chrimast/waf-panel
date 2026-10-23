@@ -46,9 +46,8 @@ class AgentOnlyContractTests(unittest.TestCase):
         self.assertNotIn("http://服务器IP:10087/login", self.readme)
         self.assertNotIn("本机总控", self.readme)
         self.assertIn("CF-Monitor", self.readme)
-        self.assertIn("https://域名", self.readme)
-        self.assertIn("443", self.readme)
-        self.assertIn("cloudflared", self.readme)
+        self.assertIn("http://公网IP:10087", self.readme)
+        self.assertNotIn("不要把 `http://IP:10087` 填进 CF-Monitor", self.readme)
 
     def test_agent_token_is_required_from_env(self):
         import config
