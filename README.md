@@ -16,11 +16,9 @@
 curl -fsSL https://raw.githubusercontent.com/chrimast/waf-panel/main/install.sh | sudo bash -s -- --role agent -y
 ```
 
-脚本会自动找 1pwaf 目录和 OpenResty 容器，装到 `/opt/waf-panel`，端口默认 `10087`。终端会打印：
+脚本会自动找 1pwaf 目录和 OpenResty 容器，装到 `/opt/waf-panel`，端口默认 `10087`。终端会打印本机监听地址和 Agent Token。
 
-- 运行角色：`agent`
-- Agent 地址：`http://那台IP:10087`
-- Agent Token
+**不要把 `http://IP:10087` 填进 CF-Monitor。** Cloudflare Worker 只能访问公网 `https://域名`（443）。本机端口仅用于自检或隧道。
 
 指定端口和 Token：
 
@@ -28,7 +26,7 @@ curl -fsSL https://raw.githubusercontent.com/chrimast/waf-panel/main/install.sh 
 curl -fsSL https://raw.githubusercontent.com/chrimast/waf-panel/main/install.sh | bash -s -- --role agent --port 10087 --agent-token '你的Token' -y
 ```
 
-查看本机 Token：
+查看本机 Token（不要把引号一起复制）：
 
 ```bash
 grep WAF_AGENT_TOKEN /opt/waf-panel/.env
@@ -36,9 +34,10 @@ grep WAF_AGENT_TOKEN /opt/waf-panel/.env
 
 到 CF-Monitor 后台打开 **WAF**：
 
-1. 填名称、Agent 地址、Token
-2. 点添加
-3. 选中节点后查看仪表盘、攻击日志、封禁、自动封禁
+1. 填名称
+2. Agent 地址填 `https://域名`（443，可用 cloudflared tunnel）
+3. 填 Token（不要带引号）
+4. 点添加，再打开仪表盘 / 攻击日志 / 封禁 / 自动封禁
 
 单独安装：
 
@@ -54,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/chrimast/waf-panel/main/uninstall.s
 
 仅确认要删除整个 `/opt/waf-panel`（含 Token、备份）时，才添加 `--purge-data`。
 
-Agent 需要能被 Cloudflare Worker 访问（公网 HTTPS 或隧道）。封禁按节点执行，A 机封的 IP 不会自动出现在 B 机。
+Agent 需要能被 Cloudflare Worker 访问（公网 HTTPS 443 或 cloudflared 隧道）。不要填 IP、localhost 或 `:10087`。封禁按节点执行，A 机封的 IP 不会自动出现在 B 机。
 
 ## Docker Compose
 

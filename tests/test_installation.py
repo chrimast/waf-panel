@@ -107,6 +107,8 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("python${pyver}-venv", self.source)
         self.assertIn("清理缺少 pip 的 Python 环境", self.source)
         self.assertIn("EnvironmentFile=", self.source)
+        self.assertIn("EnvironmentFile=-", self.source)
+        self.assertIn("WAF_AGENT_TOKEN=", self.source)
         self.assertIn("systemctl is-active", self.source)
         self.assertIn("/agent/health", self.source)
         uninstall = (PROJECT_DIR / "uninstall.sh").read_text()
