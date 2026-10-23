@@ -109,6 +109,11 @@ class InstallerContractTests(unittest.TestCase):
         self.assertIn("EnvironmentFile=", self.source)
         self.assertIn("systemctl is-active", self.source)
         self.assertIn("/agent/health", self.source)
+        uninstall = (PROJECT_DIR / "uninstall.sh").read_text()
+        self.assertIn("systemctl disable", uninstall)
+        self.assertIn("--purge-data", uninstall)
+        self.assertIn('"$PREFIX/.env"', uninstall)
+        self.assertIn("未修改 1Panel", uninstall)
 
 
 if __name__ == "__main__":

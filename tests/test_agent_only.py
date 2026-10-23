@@ -40,6 +40,9 @@ class AgentOnlyContractTests(unittest.TestCase):
 
     def test_readme_is_agent_only(self):
         self.assertIn("--role agent", self.readme)
+        self.assertIn("curl -fsSL https://raw.githubusercontent.com/chrimast/waf-panel/main/uninstall.sh | sudo bash", self.readme)
+        self.assertIn("仅确认要删除整个", self.readme)
+        self.assertIn("--purge-data", self.readme)
         self.assertNotIn("http://服务器IP:10087/login", self.readme)
         self.assertNotIn("本机总控", self.readme)
         self.assertIn("CF-Monitor", self.readme)
