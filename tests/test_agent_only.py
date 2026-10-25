@@ -56,6 +56,10 @@ class AgentOnlyContractTests(unittest.TestCase):
         self.assertNotIn("GROUP_CONCAT(DISTINCT", sql)
         self.assertIn("GROUP_CONCAT(r.value)", sql)
         self.assertIn("GROUP_CONCAT(u.value)", sql)
+        self.assertNotIn("MIN(a.time)", sql)
+        self.assertNotIn("MAX(a.time)", sql)
+        self.assertIn("/api/autoban_detect_logpaths", sql)
+        self.assertIn("读取攻击日志失败", sql)
 
     def test_agent_token_is_required_from_env(self):
         import config

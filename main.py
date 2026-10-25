@@ -59,6 +59,12 @@ async def auth_middleware(request: Request, call_next):
         return JSONResponse({"error": True, "message": e.detail}, e.status_code)
     return await call_next(request)
 
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        return JSONResponse({"error": True, "message": exc.detail}, exc.status_code)
+    return JSONResponse({"error": True, "message": str(exc) or "Internal Server Error"}, 500)
+
 @app.get("/agent/health")
 async def agent_health():
     return {"ok": True, "role": "agent"}
@@ -115,8 +121,6 @@ def _logs_sql(where="", limit=20, offset=0):
                COUNT(*) as count,
                MIN(a.localtime) as first_seen,
                MAX(a.localtime) as last_seen,
-               MIN(a.time) as first_time,
-               MAX(a.time) as last_time,
                MAX(a.is_block) as is_block,
                MAX(a.id) as last_id,
                GROUP_CONCAT(r.value) as rule,
@@ -155,8 +159,6 @@ def _aggregate_attack_logs(rows):
             "count": 0,
             "first_seen": row.get("localtime") or "",
             "last_seen": row.get("localtime") or "",
-            "first_time": row.get("time") or 0,
-            "last_time": row.get("time") or 0,
             "is_block": 0,
             "rules": set(),
             "uris": set(),
@@ -164,15 +166,10 @@ def _aggregate_attack_logs(rows):
         })
         item["count"] += 1
         localtime = row.get("localtime") or ""
-        time_value = row.get("time") or 0
         if localtime and (not item["first_seen"] or localtime < item["first_seen"]):
             item["first_seen"] = localtime
         if localtime and localtime > item["last_seen"]:
             item["last_seen"] = localtime
-        if time_value and (not item["first_time"] or time_value < item["first_time"]):
-            item["first_time"] = time_value
-        if time_value and time_value > item["last_time"]:
-            item["last_time"] = time_value
         item["is_block"] = max(item["is_block"], int(row.get("is_block") or 0))
         if row.get("rule"):
             item["rules"].add(row["rule"])
@@ -187,8 +184,6 @@ def _aggregate_attack_logs(rows):
             "count": item["count"],
             "first_seen": item["first_seen"],
             "last_seen": item["last_seen"],
-            "first_time": item["first_time"],
-            "last_time": item["last_time"],
             "is_block": item["is_block"],
             "rule": ", ".join(sorted(item["rules"])),
             "uri": ", ".join(sorted(item["uris"])[:3]),
@@ -201,28 +196,41 @@ def _aggregate_attack_logs(rows):
 # ── API: 攻击日志 ─────────────────────────────────
 @app.get("/api/logs")
 async def logs(page: int = 1, limit: int = 20, search: str = ""):
-    _cleanup_expired_temporary_bans()
-    db = db_connect(["ip", "ru", "ur"])
-    where = ""
-    if search:
-        q = str(search).replace("'", "''")
-        where = f"WHERE i.value LIKE '%{q}%' OR r.value LIKE '%{q}%' OR u.value LIKE '%{q}%'"
-    total = db.execute(_logs_count_sql(where)).fetchone()[0]
-    rows = db.execute(_logs_sql(where, limit, (page - 1) * limit)).fetchall()
-    data = [dict(r) for r in rows]
+    try:
+        _cleanup_expired_temporary_bans()
+    except Exception:
+        pass
+    try:
+        db = db_connect(["ip", "ru", "ur"])
+        where = ""
+        if search:
+            q = str(search).replace("'", "''")
+            where = f"WHERE i.value LIKE '%{q}%' OR r.value LIKE '%{q}%' OR u.value LIKE '%{q}%'"
+        total = db.execute(_logs_count_sql(where)).fetchone()[0]
+        rows = db.execute(_logs_sql(where, limit, (page - 1) * limit)).fetchall()
+        data = [dict(r) for r in rows]
+        db.close()
+    except Exception as exc:
+        return JSONResponse({"error": True, "message": f"读取攻击日志失败: {exc}"}, 500)
     for row in data:
         if row.get("rule"):
             row["rule"] = ", ".join(dict.fromkeys(part.strip() for part in str(row["rule"]).split(",") if part.strip()))
         if row.get("uri"):
             row["uri"] = ", ".join(dict.fromkeys(part.strip() for part in str(row["uri"]).split(",") if part.strip()))
-    rules = _read_blacklist_file("ipBlack")
+        row["first_time"] = row.get("first_seen") or ""
+        row["last_time"] = row.get("last_seen") or ""
+    try:
+        rules = _read_blacklist_file("ipBlack")
+        bantime = max(1, int(load_autoban_config().get("bantime", 3600)))
+    except Exception:
+        rules = []
+        bantime = 3600
     for row in data:
         states = _ip_ban_states(rules, row.get("ip"))
         row["is_temporary_banned"] = states["temporary"]
         row["is_permanent_banned"] = states["permanent"]
         row["is_banned"] = states["temporary"] or states["permanent"]
-    db.close()
-    return {"total": total, "page": page, "limit": limit, "pages": max(1, (total + limit - 1) // limit), "bantime": max(1, int(load_autoban_config().get("bantime", 3600))), "data": data}
+    return {"total": total, "page": page, "limit": limit, "pages": max(1, (total + limit - 1) // limit), "bantime": bantime, "data": data}
 
 # ── API: 日志详情 ─────────────────────────────────
 @app.get("/api/log_detail")
@@ -729,6 +737,11 @@ async def autoban_config_get():
     cfg = load_autoban_config()
     status = fail2ban_status(cfg.get("jail_name"))
     return {"config": cfg, "missing_filters": missing_jail_filters(cfg), "status": status, "detected_logpaths": detect_default_logpaths(), "main_jail_generated": main_jail_generated()}
+
+@app.get("/api/autoban_detect_logpaths")
+async def autoban_detect_logpaths():
+    paths = detect_default_logpaths()
+    return {"ok": True, "detected_logpaths": paths}
 
 @app.post("/api/autoban_config")
 async def autoban_config_set(request: Request):
