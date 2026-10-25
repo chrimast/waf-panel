@@ -51,8 +51,10 @@ class WafPanelRuleTests(unittest.TestCase):
         self.assertIn("COUNT(*)", sql)
         self.assertIn("MIN(", sql)
         self.assertIn("MAX(", sql)
-        self.assertIn("ORDER BY count DESC", sql)
-        self.assertIn("GROUP_CONCAT", sql)
+        self.assertIn("ORDER BY COUNT(*) DESC", sql)
+        self.assertNotIn("GROUP_CONCAT(DISTINCT", sql)
+        self.assertIn("GROUP_CONCAT(r.value)", sql)
+        self.assertIn("GROUP_CONCAT(u.value)", sql)
         self.assertIn("r.value", sql)
         self.assertIn("u.value", sql)
 

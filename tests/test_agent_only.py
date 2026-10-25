@@ -49,6 +49,14 @@ class AgentOnlyContractTests(unittest.TestCase):
         self.assertIn("http://公网IP:10087", self.readme)
         self.assertNotIn("不要把 `http://IP:10087` 填进 CF-Monitor", self.readme)
 
+    def test_logs_sql_avoids_distinct_concat_and_alias_order(self):
+        sql = self.main
+        self.assertIn("GROUP BY i.value", sql)
+        self.assertIn("ORDER BY COUNT(*) DESC", sql)
+        self.assertNotIn("GROUP_CONCAT(DISTINCT", sql)
+        self.assertIn("GROUP_CONCAT(r.value)", sql)
+        self.assertIn("GROUP_CONCAT(u.value)", sql)
+
     def test_agent_token_is_required_from_env(self):
         import config
 

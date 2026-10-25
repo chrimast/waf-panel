@@ -119,15 +119,15 @@ def _logs_sql(where="", limit=20, offset=0):
                MAX(a.time) as last_time,
                MAX(a.is_block) as is_block,
                MAX(a.id) as last_id,
-               GROUP_CONCAT(DISTINCT r.value) as rule,
-               GROUP_CONCAT(DISTINCT u.value) as uri
+               GROUP_CONCAT(r.value) as rule,
+               GROUP_CONCAT(u.value) as uri
         FROM attack_logs a
         LEFT JOIN ip.ips i ON i.id=a.ip_id
         LEFT JOIN ru.rules r ON r.id=a.rule_id
         LEFT JOIN ur.uris u ON u.id=a.uri_id
         {where}
         GROUP BY i.value
-        ORDER BY count DESC
+        ORDER BY COUNT(*) DESC
         LIMIT {int(limit)} OFFSET {int(offset)}
     """
 
@@ -205,10 +205,16 @@ async def logs(page: int = 1, limit: int = 20, search: str = ""):
     db = db_connect(["ip", "ru", "ur"])
     where = ""
     if search:
-        where = f"WHERE i.value LIKE '%{search}%' OR r.value LIKE '%{search}%' OR u.value LIKE '%{search}%'"
+        q = str(search).replace("'", "''")
+        where = f"WHERE i.value LIKE '%{q}%' OR r.value LIKE '%{q}%' OR u.value LIKE '%{q}%'"
     total = db.execute(_logs_count_sql(where)).fetchone()[0]
     rows = db.execute(_logs_sql(where, limit, (page - 1) * limit)).fetchall()
     data = [dict(r) for r in rows]
+    for row in data:
+        if row.get("rule"):
+            row["rule"] = ", ".join(dict.fromkeys(part.strip() for part in str(row["rule"]).split(",") if part.strip()))
+        if row.get("uri"):
+            row["uri"] = ", ".join(dict.fromkeys(part.strip() for part in str(row["uri"]).split(",") if part.strip()))
     rules = _read_blacklist_file("ipBlack")
     for row in data:
         states = _ip_ban_states(rules, row.get("ip"))
