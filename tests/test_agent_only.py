@@ -61,6 +61,10 @@ class AgentOnlyContractTests(unittest.TestCase):
         self.assertIn("/api/autoban_detect_logpaths", sql)
         self.assertIn("读取攻击日志失败", sql)
 
+    def test_attack_map_points_include_region_name(self):
+        self.assertIn("regionName", self.main)
+        self.assertIn('"region": g.get("regionName", "")', self.main)
+
     def test_sqlite_text_factory_replaces_invalid_utf8(self):
         self.assertIn("text_factory", self.config)
         self.assertIn('decode("utf-8", "replace")', self.config)

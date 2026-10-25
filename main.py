@@ -387,7 +387,7 @@ async def attack_map():
         g = geo_data.get(r["ip"])
         if g:
             points.append({"ip": r["ip"], "lat": g["lat"], "lon": g["lon"], "country": g["country"],
-                "countryCode": g.get("countryCode", ""), "city": g.get("city",""), "count": r["count"], "last_time": r["last_time"]})
+                "countryCode": g.get("countryCode", ""), "region": g.get("regionName", ""), "city": g.get("city",""), "count": r["count"], "last_time": r["last_time"]})
     return {"points": points}
 
 # ── API: 地理位置封禁 ─────────────────────────────
