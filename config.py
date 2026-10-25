@@ -76,10 +76,14 @@ def nginx_reload():
         "output": (out.stdout + out.stderr).strip(),
     }
 
+def configure_sqlite(db):
+    db.row_factory = sqlite3.Row
+    db.text_factory = lambda b: b.decode("utf-8", "replace")
+    return db
+
 def db_connect(dbs=None, readonly=True):
     uri = f"file:{WAF_DB}/attack_logs.db?mode={'ro' if readonly else 'rw'}"
-    db = sqlite3.connect(uri, uri=True)
-    db.row_factory = sqlite3.Row
+    db = configure_sqlite(sqlite3.connect(uri, uri=True))
     if dbs is None: dbs = ["ip", "ru", "ur", "mv", "ho"]
     for alias in dbs:
         path = os.path.join(WAF_DB, f"{alias_map[alias]}.db")

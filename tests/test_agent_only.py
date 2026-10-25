@@ -61,6 +61,23 @@ class AgentOnlyContractTests(unittest.TestCase):
         self.assertIn("/api/autoban_detect_logpaths", sql)
         self.assertIn("读取攻击日志失败", sql)
 
+    def test_sqlite_text_factory_replaces_invalid_utf8(self):
+        self.assertIn("text_factory", self.config)
+        self.assertIn('decode("utf-8", "replace")', self.config)
+
+    def test_sqlite_reads_invalid_utf8_uri_without_raising(self):
+        import sqlite3
+        import config
+        db = sqlite3.connect(":memory:")
+        config.configure_sqlite(db)
+        self.assertEqual(db.text_factory(b"/hello.world?\xad d"), "/hello.world?\ufffd d")
+        db.execute("CREATE TABLE uris (value TEXT)")
+        db.execute("INSERT INTO uris(value) VALUES (CAST(X'2F68656C6C6F3FAD' AS TEXT))")
+        value = db.execute("SELECT value FROM uris").fetchone()[0]
+        self.assertIsInstance(value, str)
+        self.assertTrue(value.startswith("/hello"))
+        self.assertIn("\ufffd", value)
+
     def test_agent_token_is_required_from_env(self):
         import config
 

@@ -80,7 +80,7 @@ async def dashboard():
     # WAF 每日统计
     try:
         db = sqlite3.connect(f"file:{WAF_DB}/waf_stat.db?mode=ro", uri=True)
-        db.row_factory = sqlite3.Row
+        configure_sqlite(db)
         rows = db.execute("SELECT * FROM waf_stat ORDER BY day DESC LIMIT 30").fetchall()
         data["waf_stat"] = [dict(r) for r in rows]
         db.close()
@@ -256,7 +256,7 @@ async def log_detail(id: int):
     # 单独查 nginx_log + user_agent
     if nid:
         nl_db = sqlite3.connect(f"file:{WAF_DB}/nginx_logs.db?mode=ro", uri=True)
-        nl_db.row_factory = sqlite3.Row
+        configure_sqlite(nl_db)
         nl_db.execute(f"ATTACH DATABASE '{WAF_DB}/user_agents.db' AS ua")
         nl_row = nl_db.execute(f"""
             SELECT nl.nginx_log, nl.status_code, nl.remote_port, ua2.value as user_agent
@@ -279,7 +279,7 @@ async def log_detail(id: int):
 async def blocks(page: int = 1, limit: int = 20):
     _cleanup_expired_temporary_bans()
     db = sqlite3.connect(f"file:{WAF_DB}/block_ips.db?mode=ro", uri=True)
-    db.row_factory = sqlite3.Row
+    configure_sqlite(db)
     db.execute(f"ATTACH DATABASE '{WAF_DB}/ips.db' AS ips")
     total = db.execute("SELECT COUNT(*) FROM block_ips").fetchone()[0]
     rows = db.execute(f"SELECT b.*, i.value as ip FROM block_ips b LEFT JOIN ips.ips i ON i.id=b.ip_id ORDER BY b.id DESC LIMIT {limit} OFFSET {(page-1)*limit}").fetchall()
