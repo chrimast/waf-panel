@@ -69,6 +69,13 @@ class AgentOnlyContractTests(unittest.TestCase):
         self.assertIn("text_factory", self.config)
         self.assertIn('decode("utf-8", "replace")', self.config)
 
+    def test_manual_ban_succeeds_without_fail2ban_jail(self):
+        self.assertIn("apply_jail_waf_ban(ip)", self.main)
+        self.assertIn("apply_jail_waf_unban(ip)", self.main)
+        self.assertIn("已临时封禁", self.main)
+        self.assertIn("已解除临时封禁", self.main)
+        self.assertNotIn("merged.get(\"ok\", False)", self.main)
+
     def test_sqlite_reads_invalid_utf8_uri_without_raising(self):
         import sqlite3
         import config

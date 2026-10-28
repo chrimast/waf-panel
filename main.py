@@ -835,9 +835,17 @@ async def autoban_ban(request: Request):
     if not ip: raise HTTPException(400, "IP 不能为空")
     cfg = load_autoban_config()
     jail = cfg.get("jail_name", "waf-panel-autoban")
+    merged = apply_jail_waf_ban(ip)
+    if not merged.get("ok"):
+        raise HTTPException(500, merged.get("message") or "写入临时封禁失败")
     out = subprocess.run(["fail2ban-client", "set", jail, "banip", ip], capture_output=True, text=True)
-    merged = apply_jail_waf_ban(ip) if out.returncode == 0 else {"ok": False}
-    return {"ok": out.returncode == 0 and merged.get("ok", False), "output": (out.stdout + out.stderr).strip(), "waf": merged}
+    return {
+        "ok": True,
+        "message": f"已临时封禁: {ip}",
+        "output": (out.stdout + out.stderr).strip(),
+        "fail2ban_ok": out.returncode == 0,
+        "waf": merged,
+    }
 
 @app.post("/api/autoban_unban")
 async def autoban_unban(request: Request):
@@ -846,9 +854,17 @@ async def autoban_unban(request: Request):
     if not ip: raise HTTPException(400, "IP 不能为空")
     cfg = load_autoban_config()
     jail = cfg.get("jail_name", "waf-panel-autoban")
-    out = subprocess.run(["fail2ban-client", "set", jail, "unbanip", ip], capture_output=True, text=True)
     merged = apply_jail_waf_unban(ip)
-    return {"ok": out.returncode == 0 and merged.get("ok", False), "output": (out.stdout + out.stderr).strip(), "waf": merged}
+    if not merged.get("ok"):
+        raise HTTPException(500, merged.get("message") or "解除临时封禁失败")
+    out = subprocess.run(["fail2ban-client", "set", jail, "unbanip", ip], capture_output=True, text=True)
+    return {
+        "ok": True,
+        "message": f"已解除临时封禁: {ip}",
+        "output": (out.stdout + out.stderr).strip(),
+        "fail2ban_ok": out.returncode == 0,
+        "waf": merged,
+    }
 
 # ── API: Nginx 重载 ───────────────────────────────
 @app.post("/api/reload")

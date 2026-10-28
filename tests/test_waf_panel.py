@@ -158,17 +158,19 @@ class WafPanelAutobanApiTests(unittest.TestCase):
     def test_manual_autoban_applies_merged_waf_result(self):
         request = AsyncMock()
         request.json.return_value = {"ip": "203.0.113.8"}
-        with patch.object(main, "load_autoban_config", return_value={"jail_name": "waf-panel-autoban"}), patch.object(main.subprocess, "run", return_value=type("R", (), {"returncode": 0, "stdout": "1", "stderr": ""})()), patch.object(main, "apply_jail_waf_ban", return_value={"ok": True, "block_id": 9}) as apply:
+        with patch.object(main, "load_autoban_config", return_value={"jail_name": "waf-panel-autoban"}), patch.object(main.subprocess, "run", return_value=type("R", (), {"returncode": 1, "stdout": "", "stderr": "Jail is not exist"})()), patch.object(main, "apply_jail_waf_ban", return_value={"ok": True, "block_id": 9}) as apply:
             result = asyncio.run(main.autoban_ban(request))
         self.assertTrue(result["ok"])
+        self.assertEqual(result["message"], "已临时封禁: 203.0.113.8")
         apply.assert_called_once_with("203.0.113.8")
 
     def test_manual_autoban_unban_applies_merged_waf_result(self):
         request = AsyncMock()
         request.json.return_value = {"ip": "203.0.113.8"}
-        with patch.object(main, "load_autoban_config", return_value={"jail_name": "waf-panel-autoban"}), patch.object(main.subprocess, "run", return_value=type("R", (), {"returncode": 0, "stdout": "1", "stderr": ""})()), patch.object(main, "apply_jail_waf_unban", return_value={"ok": True}) as apply:
+        with patch.object(main, "load_autoban_config", return_value={"jail_name": "waf-panel-autoban"}), patch.object(main.subprocess, "run", return_value=type("R", (), {"returncode": 1, "stdout": "", "stderr": "not found"})()), patch.object(main, "apply_jail_waf_unban", return_value={"ok": True}) as apply:
             result = asyncio.run(main.autoban_unban(request))
         self.assertTrue(result["ok"])
+        self.assertEqual(result["message"], "已解除临时封禁: 203.0.113.8")
         apply.assert_called_once_with("203.0.113.8")
 
 
